@@ -128,6 +128,7 @@ TEST_CASE("BackendRegistry::List exposes stable sorted snapshot",
       REQUIRE(info.capabilities.emits_object);
       REQUIRE(info.capabilities.emits_assembly);
       REQUIRE(info.capabilities.supports_linear_scan);
+      REQUIRE(info.capabilities.supports_graph_coloring);
       saw_arm = true;
     } else if (info.triple == "wasm32-unknown-unknown") {
       REQUIRE(info.capabilities.emits_object);

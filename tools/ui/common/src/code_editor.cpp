@@ -9,7 +9,17 @@
  * @date     2026-04-10
  */
 #include <QApplication>
+#include <QContextMenuEvent>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QMenu>
+#include <QPointer>
+#include <QPushButton>
+#include <QSplitter>
+#include <QTextBrowser>
+#include <QVBoxLayout>
 #include <QFontDatabase>
+#include <QFileInfo>
 #include <QFontMetrics>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -30,6 +40,7 @@
 #include "tools/ui/common/include/completion_ranker.h"
 #include "tools/ui/common/include/lsp_bridge.h"
 #include "tools/ui/common/include/theme_manager.h"
+#include "tools/ui/common/include/syntax_highlighter.h"
 
 namespace polyglot::tools::ui {
 
@@ -72,8 +83,9 @@ CodeEditor::CodeEditor(QWidget *parent) : QPlainTextEdit(parent) {
   hover_timer_->setSingleShot(true);
   hover_timer_->setInterval(450);
   connect(hover_timer_, &QTimer::timeout, this, [this]() {
-    if (!lsp_bridge_) return;
     QTextCursor tc = cursorForPosition(viewport()->mapFromGlobal(last_hover_pos_));
+    if (ShowSourceHover(tc, last_hover_pos_)) return;
+    if (!lsp_bridge_) return;
     const int line = tc.blockNumber();
     const int character = tc.positionInBlock();
     QPoint anchor = last_hover_pos_;
@@ -95,6 +107,22 @@ CodeEditor::CodeEditor(QWidget *parent) : QPlainTextEdit(parent) {
           }
           hover_tooltip_->ShowMarkdown(text, anchor);
         });
+  });
+  source_doc_timer_ = new QTimer(this);
+  source_doc_timer_->setSingleShot(true);
+  source_doc_timer_->setInterval(220);
+  connect(this, &CodeEditor::cursorPositionChanged, this, [this]() { source_doc_timer_->start(); });
+  connect(source_doc_timer_, &QTimer::timeout, this, [this]() {
+    if (language_ != "poly" && language_ != "ploy") return;
+    const auto cursor = textCursor();
+    const auto bytes = toPlainText().left(cursor.position()).toUtf8().size();
+    auto target = cross_language::ForeignTargetAt(toPlainText().toStdString(), bytes);
+    if (!target) { last_inline_key_.clear(); return; }
+    const auto key = target->language + "::" + target->qualified_symbol;
+    if (key == last_inline_key_) return;
+    last_inline_key_ = key;
+    auto docs = InspectAtCursor(cursor);
+    if (docs.size() == 1) ShowInlineDefinition(docs.front());
   });
   setMouseTracking(true);
 
@@ -141,7 +169,9 @@ int CodeEditor::LineNumberAreaWidth() const {
 
 void CodeEditor::UpdateLineNumberAreaWidth(int /*new_block_count*/) {
   int right_margin = minimap_visible_ ? MinimapWidget::kWidth : 0;
-  setViewportMargins(LineNumberAreaWidth(), 0, right_margin, 0);
+  setViewportMargins(LineNumberAreaWidth(), 0, right_margin,
+                     InlineDefinitionVisible() ? qMin(285, height() / 2) : 0);
+  LayoutInlineDefinition();
 }
 
 void CodeEditor::UpdateLineNumberArea(const QRect &rect, int dy) {
@@ -158,7 +188,9 @@ void CodeEditor::UpdateLineNumberArea(const QRect &rect, int dy) {
 void CodeEditor::resizeEvent(QResizeEvent *event) {
   QPlainTextEdit::resizeEvent(event);
 
+  LayoutInlineDefinition();
   QRect cr = contentsRect();
+  if (InlineDefinitionVisible()) cr.setBottom(cr.bottom() - qMin(285, height() / 2));
   line_number_area_->setGeometry(QRect(cr.left(), cr.top(), LineNumberAreaWidth(), cr.height()));
 
   // Position the minimap on the far right
@@ -399,6 +431,7 @@ void CodeEditor::ApplyTheme() {
   HighlightCurrentLine();
   line_number_area_->update();
   minimap_->UpdateContent();
+  if (InlineDefinitionVisible()) ShowInlineDefinition(inline_target_);
 }
 
 // ============================================================================
@@ -406,6 +439,10 @@ void CodeEditor::ApplyTheme() {
 // ============================================================================
 
 void CodeEditor::keyPressEvent(QKeyEvent *event) {
+  if (event->key() == Qt::Key_Escape && InlineDefinitionVisible()) {
+    HideInlineDefinition();
+    return;
+  }
   // Two-stroke chord: Ctrl+K Ctrl+I → manual hover request,
   //                   Ctrl+K F12   → inline Peek of the definition.
   if (waiting_ctrl_k_chord_) {
@@ -849,6 +886,7 @@ void CodeEditor::OnCompletionAccepted(const QModelIndex &index) {
 // ============================================================================
 
 void CodeEditor::RequestHoverAtCursor() {
+  if (ShowSourceHover(textCursor(), mapToGlobal(cursorRect().bottomLeft()))) return;
   if (!lsp_bridge_) return;
   QTextCursor tc = textCursor();
   const int line = tc.blockNumber();
@@ -1069,8 +1107,8 @@ void CodeEditor::mousePressEvent(QMouseEvent *event) {
     tc.select(QTextCursor::WordUnderCursor);
     QString word = tc.selectedText().trimmed();
     if (!word.isEmpty()) {
-      int line = tc.blockNumber() + 1;
-      int col = tc.columnNumber() + 1;
+      int line = tc.blockNumber();
+      int col = tc.positionInBlock();
       emit GoToDefinitionRequested(word, line, col);
       event->accept();
       return;
@@ -1315,6 +1353,144 @@ void MinimapWidget::mouseMoveEvent(QMouseEvent *event) {
     target_line = qBound(0, target_line, total_lines - 1);
     emit ScrollRequested(target_line);
   }
+}
+
+
+QString CodeEditor::SymbolAtCursor(const QTextCursor &at) const {
+  auto cursor = at;
+  cursor.select(QTextCursor::WordUnderCursor);
+  return cursor.selectedText();
+}
+
+std::vector<cross_language::FunctionDocumentation> CodeEditor::InspectAtCursor(
+    const QTextCursor &cursor) const {
+  if (!compiler_service_) return {};
+  const auto source = toPlainText();
+  return compiler_service_->InspectSymbol(SymbolAtCursor(cursor).toStdString(),
+      file_path_.toStdString(), source.toStdString(), language_,
+      source.left(cursor.position()).toUtf8().size());
+}
+
+bool CodeEditor::ShowSourceHover(const QTextCursor &cursor, const QPoint &anchor) {
+  const auto docs = InspectAtCursor(cursor);
+  if (docs.empty()) return false;
+  if (docs.size() > 1) {
+    hover_tooltip_->ShowMarkdown(tr("**%1 definitions** — use Go to Definition to choose the source.").arg(docs.size()), anchor);
+    return true;
+  }
+  const auto &doc = docs.front();
+  QString markdown = "```" + QString::fromStdString(doc.language) + "\n" +
+                     QString::fromStdString(doc.signature) + "\n```\n\n";
+  markdown += doc.documentation.empty() ? tr("No documentation comment in source.") : QString::fromStdString(doc.documentation);
+  markdown += "\n\n" + QString::fromStdString(doc.location.file) + ":" + QString::number(doc.location.line);
+  hover_tooltip_->ShowMarkdown(markdown, anchor);
+  return true;
+}
+
+bool CodeEditor::InlineDefinitionVisible() const {
+  return inline_definition_ && !inline_definition_->isHidden();
+}
+
+void CodeEditor::LayoutInlineDefinition() {
+  if (!InlineDefinitionVisible()) return;
+  const int panel_height = qMin(285, height() / 2);
+  inline_definition_->setGeometry(LineNumberAreaWidth(), height() - panel_height,
+                                  qMax(0, width() - LineNumberAreaWidth()), panel_height);
+  inline_definition_->raise();
+}
+
+void CodeEditor::HideInlineDefinition() {
+  if (inline_definition_) inline_definition_->hide();
+  UpdateLineNumberAreaWidth(0);
+}
+
+void CodeEditor::ShowInlineDefinition(const cross_language::FunctionDocumentation &definition) {
+  inline_target_ = definition;
+  if (!inline_definition_) {
+    inline_definition_ = new QFrame(this);
+    inline_definition_->setObjectName("inlineDefinition");
+    auto *layout = new QVBoxLayout(inline_definition_);
+    layout->setContentsMargins(12, 8, 12, 10);
+    layout->setSpacing(6);
+    auto *header = new QHBoxLayout();
+    inline_title_ = new QLabel();
+    inline_title_->setTextFormat(Qt::PlainText);
+    inline_title_->setMinimumWidth(0);
+    header->addWidget(inline_title_, 1);
+    auto *open = new QPushButton(tr("Open definition ↗"));
+    open->setObjectName("openDefinitionButton");
+    connect(open, &QPushButton::clicked, this, [this]() {
+      emit OpenDefinitionLocation(QString::fromStdString(inline_target_.location.file),
+                                  inline_target_.location.line, inline_target_.location.column);
+    });
+    auto *close = new QPushButton(QStringLiteral("×"));
+    close->setToolTip(tr("Close preview (Escape)"));
+    close->setFixedWidth(26);
+    connect(close, &QPushButton::clicked, this, &CodeEditor::HideInlineDefinition);
+    header->addWidget(open); header->addWidget(close);
+    layout->addLayout(header);
+    auto *splitter = new QSplitter(Qt::Horizontal);
+    inline_doc_ = new QTextBrowser();
+    inline_doc_->setObjectName("foreignDocumentation");
+    inline_doc_->setOpenExternalLinks(false);
+    inline_doc_->setOpenLinks(false);
+    inline_source_ = new QPlainTextEdit();
+    inline_source_->setObjectName("foreignSourcePreview");
+    inline_source_->setReadOnly(true);
+    inline_source_->setFont(font());
+    inline_source_->setLineWrapMode(QPlainTextEdit::NoWrap);
+    splitter->addWidget(inline_doc_); splitter->addWidget(inline_source_);
+    splitter->setSizes({340, 460});
+    layout->addWidget(splitter, 1);
+  }
+  const auto &tc = ThemeManager::Instance().Active();
+  inline_definition_->setStyleSheet(QString(
+      "QFrame#inlineDefinition { background:%1; border-top:2px solid %2; }"
+      "QTextBrowser,QPlainTextEdit { background:%3; border:1px solid %4; border-radius:5px; }"
+      "QPushButton { padding:4px 8px; border:1px solid %4; border-radius:4px; background:%1; color:%5; }")
+      .arg(tc.surface.name(), tc.accent.name(), tc.editor_background.name(), tc.border.name(), tc.text.name()));
+  inline_title_->setText(tr("%1  ·  %2:%3  ·  source preview")
+      .arg(QString::fromStdString(definition.language).toUpper(),
+           QFileInfo(QString::fromStdString(definition.location.file)).fileName())
+      .arg(definition.location.line));
+  inline_title_->setToolTip(QString::fromStdString(definition.location.file));
+  const QString signature = QString::fromStdString(definition.signature).toHtmlEscaped();
+  const QString documentation = definition.documentation.empty() ?
+      tr("No documentation comment in source.") : QString::fromStdString(definition.documentation);
+  inline_doc_->setHtml("<b>" + signature + "</b><p style='white-space:pre-wrap'>" +
+                      documentation.toHtmlEscaped().replace("\n", "<br>") + "</p>");
+  inline_source_->setPlainText(QString::fromStdString(definition.source_preview));
+  // One highlighter per preview document; replacing it is safe on language changes.
+  for (auto *child : inline_source_->document()->findChildren<SyntaxHighlighter *>()) delete child;
+  new SyntaxHighlighter(inline_source_->document(), compiler_service_, definition.language);
+  inline_definition_->show();
+  UpdateLineNumberAreaWidth(0);
+}
+
+void CodeEditor::contextMenuEvent(QContextMenuEvent *event) {
+  const auto cursor = cursorForPosition(event->pos());
+  setTextCursor(cursor);
+  const auto word = SymbolAtCursor(cursor);
+  auto *menu = createStandardContextMenu();
+  menu->addSeparator();
+  auto *definition = menu->addAction(tr("Go to Function Definition"));
+  definition->setObjectName("goToDefinitionAction");
+  definition->setShortcut(QKeySequence(Qt::Key_F12));
+  auto *peek = menu->addAction(tr("Show Source and Documentation Inline"));
+  peek->setObjectName("peekDefinitionAction");
+  auto *documentation = menu->addAction(tr("Show Function Documentation"));
+  definition->setEnabled(!word.isEmpty() && goto_def_enabled_);
+  peek->setEnabled(!word.isEmpty());
+  documentation->setEnabled(!word.isEmpty());
+  connect(definition, &QAction::triggered, this, [this, cursor, word]() {
+    emit GoToDefinitionRequested(word, cursor.blockNumber(), cursor.positionInBlock());
+  });
+  connect(peek, &QAction::triggered, this, [this, cursor, word]() {
+    emit PeekDefinitionRequested(word, cursor.blockNumber(), cursor.positionInBlock());
+  });
+  connect(documentation, &QAction::triggered, this, &CodeEditor::RequestHoverAtCursor);
+  menu->exec(event->globalPos());
+  delete menu;
 }
 
 } // namespace polyglot::tools::ui

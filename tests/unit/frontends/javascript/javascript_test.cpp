@@ -426,3 +426,126 @@ TEST_CASE("JS signature extraction uses the caller's ECMAScript version",
     REQUIRE(frontend.ExtractSignatures(source, "<test>", "api", old_d, old_options).empty());
     REQUIRE(old_d.HasErrors());
 }
+
+TEST_CASE("JS parentheses preserve arithmetic expressions without arrow diagnostics",
+          "[javascript][parser][regression]") {
+    Diagnostics d;
+    const auto module = Parse("function evaluate(a,b) { return (a - b) * (a + b); }", d);
+    REQUIRE_FALSE(d.HasErrors());
+    const auto fn = std::dynamic_pointer_cast<FunctionDecl>(module->body[0]);
+    REQUIRE(fn);
+    const auto body = std::dynamic_pointer_cast<BlockStatement>(fn->body);
+    const auto ret = std::dynamic_pointer_cast<ReturnStatement>(body->statements[0]);
+    const auto product = std::dynamic_pointer_cast<BinaryExpr>(ret->value);
+    REQUIRE(product);
+    CHECK(product->op == "*");
+    REQUIRE(std::dynamic_pointer_cast<BinaryExpr>(product->left));
+    CHECK(std::dynamic_pointer_cast<BinaryExpr>(product->left)->op == "-");
+    CHECK(std::dynamic_pointer_cast<BinaryExpr>(product->right)->op == "+");
+}
+
+TEST_CASE("JS boolean logical operators conditionally evaluate the right operand",
+          "[javascript][lowering][short-circuit]") {
+    for (const std::string op : {"&&", "||"}) {
+        INFO(op);
+        const std::string source =
+            "/** @returns {boolean} */\nfunction marker() { return true; }\n"
+            "/**\n * @param {boolean} x\n * @returns {boolean}\n */\n"
+            "function gate(x) { return x " + op + " marker(); }\n";
+        Diagnostics d;
+        const auto module = Parse(source.c_str(), d);
+        REQUIRE_FALSE(d.HasErrors());
+        SemaContext sema(d);
+        AnalyzeModule(*module, sema);
+        IRContext context;
+        LowerToIR(*module, context, d);
+        REQUIRE_FALSE(d.HasErrors());
+        bool verified = false;
+        for (const auto &fn : context.Functions()) {
+            if (fn->name != "gate") continue;
+            const auto branch = std::dynamic_pointer_cast<polyglot::ir::CondBranchStatement>(fn->entry->terminator);
+            REQUIRE(branch);
+            auto *rhs = op == "&&" ? branch->true_target : branch->false_target;
+            REQUIRE(rhs);
+            CHECK(rhs->name.find("logical.rhs") == 0);
+            bool rhs_calls_marker = false;
+            for (const auto &instruction : rhs->instructions) {
+                if (auto call = std::dynamic_pointer_cast<polyglot::ir::CallInstruction>(instruction))
+                    rhs_calls_marker = rhs_calls_marker || call->callee == "marker";
+            }
+            CHECK(rhs_calls_marker);
+            for (const auto &instruction : fn->entry->instructions)
+                CHECK_FALSE(std::dynamic_pointer_cast<polyglot::ir::CallInstruction>(instruction));
+            verified = true;
+        }
+        CHECK(verified);
+    }
+}
+
+TEST_CASE("JS native integer APIs accept exactly represented safe integer literals",
+          "[javascript][lowering][native-api]") {
+    Diagnostics d;
+    const auto ir = LowerIR(
+        "/** @returns {boolean} */\nfunction main() {\n"
+        "const values = array_new(4); array_set(values, 0, -3);\n"
+        "print_i64(array_len(values)); print_text(arg_text(1));\n"
+        "print_i64(0xff); print_i64(1e3); print_i64(9007199254740991);\n"
+        "array_free(values); return true; }", d);
+    REQUIRE_FALSE(d.HasErrors());
+    CHECK(ir.find("polyrt_array_new") != std::string::npos);
+    CHECK(ir.find("polyrt_arg_text") != std::string::npos);
+    CHECK(ir.find("polyrt_print_i64") != std::string::npos);
+}
+
+TEST_CASE("JS native integer APIs reject fractions, unsafe Numbers, BigInt and implicit variable conversion",
+          "[javascript][lowering][native-api]") {
+    for (const std::string value : {"1.5", "9007199254740992", "-9007199254740992", "1n", "size"}) {
+        INFO(value);
+        Diagnostics d;
+        const auto source = "/** @returns {boolean} */\nfunction main() {\n"
+            "const size = 4; print_i64(" + value + "); return true; }";
+        LowerIR(source.c_str(), d);
+        CHECK(d.HasErrors());
+    }
+}
+
+TEST_CASE("JS native string APIs decode quoted literal bytes at the ABI boundary",
+          "[javascript][lowering][native-api]") {
+    Diagnostics d;
+    auto module = Parse(R"js(/** @returns {boolean} */
+function main() {
+  print_text("hello\n");
+  const file = file_open_write('/tmp/output.txt');
+  file_write_text(file, 'tab\tquote\' slash\\ \x41B \u4e2d');
+  print_text("");
+  return true;
+})js", d);
+    REQUIRE_FALSE(d.HasErrors());
+    SemaContext sema(d);
+    AnalyzeModule(*module, sema);
+    IRContext context;
+    LowerToIR(*module, context, d);
+    REQUIRE_FALSE(d.HasErrors());
+    std::vector<std::string> strings;
+    for (const auto &global : context.Globals())
+        if (auto value = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(global->initializer))
+            strings.push_back(value->data);
+    REQUIRE(strings.size() == 4);
+    CHECK(strings[0] == "hello\n");
+    CHECK(strings[1] == "/tmp/output.txt");
+    CHECK(strings[2] == "tab\tquote' slash\\ AB 中");
+    CHECK(strings[3].empty());
+}
+
+TEST_CASE("JS native string APIs reject unsupported escapes and interpolation explicitly",
+          "[javascript][lowering][native-api]") {
+    for (const std::string literal : {R"js("\x1")js", R"js("\u0000")js", R"js("\a")js",
+                                      R"js(`value ${1}`)js"}) {
+        INFO(literal);
+        Diagnostics d;
+        const auto source = "/** @returns {boolean} */\nfunction main() { print_text(" +
+            literal + "); return true; }";
+        LowerIR(source.c_str(), d);
+        CHECK(d.HasErrors());
+    }
+}

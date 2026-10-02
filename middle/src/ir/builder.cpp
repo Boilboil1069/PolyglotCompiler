@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <cstring>
 #include <unordered_map>
 #include <utility>
 
@@ -39,22 +40,50 @@ std::shared_ptr<BasicBlock> IRBuilder::CurrentBlock() {
 }
 
 std::string IRBuilder::NextTempName(const std::string &hint) {
-  return (hint.empty() ? std::string("tmp") : hint) + std::to_string(temp_index_++);
+  return UniqueName((hint.empty() ? std::string("tmp") : hint) + std::to_string(temp_index_++));
+}
+
+std::string IRBuilder::UniqueName(const std::string &hint) {
+  if (names_.emplace(hint, 1).second) return hint;
+  std::string candidate;
+  do { candidate = hint + "." + std::to_string(temp_index_++); }
+  while (!names_.emplace(candidate, 1).second);
+  return candidate;
 }
 
 std::shared_ptr<LiteralExpression> IRBuilder::MakeLiteral(long long value,
                                                           const std::string &name) {
   auto lit = std::make_shared<LiteralExpression>(value);
-  lit->name = name.empty() ? NextTempName("c") : name;
-  // Literals are values; no instruction stream needed.
+  lit->name = name.empty() ? NextTempName("c") : UniqueName(name);
+  auto inst = std::make_shared<ConstantInstruction>();
+  inst->name = lit->name;
+  inst->type = lit->type;
+  inst->bits = static_cast<std::uint64_t>(value);
+  CurrentBlock()->AddInstruction(inst);
   return lit;
 }
 
 std::shared_ptr<LiteralExpression> IRBuilder::MakeLiteral(double value, const std::string &name) {
   auto lit = std::make_shared<LiteralExpression>(value);
-  lit->name = name.empty() ? NextTempName("cf") : name;
-  // Literals are values; no instruction stream needed.
+  lit->name = name.empty() ? NextTempName("cf") : UniqueName(name);
+  auto inst = std::make_shared<ConstantInstruction>();
+  inst->name = lit->name;
+  inst->type = lit->type;
+  static_assert(sizeof(value) == sizeof(inst->bits));
+  std::memcpy(&inst->bits, &value, sizeof(value));
+  CurrentBlock()->AddInstruction(inst);
   return lit;
+}
+
+std::shared_ptr<CastInstruction> IRBuilder::MakeFloatNegate(
+    const std::string &value, const IRType &type, const std::string &name) {
+  const bool single = type.kind == IRTypeKind::kF32;
+  const auto integer = single ? IRType::I32(false) : IRType::I64(false);
+  auto bits = MakeCast(CastInstruction::CastKind::kBitcast, value, integer);
+  auto negative = MakeBinary(BinaryInstruction::Op::kXor, bits->name,
+                             single ? "2147483648" : "9223372036854775808", NextTempName("fneg"));
+  negative->type = integer;
+  return MakeCast(CastInstruction::CastKind::kBitcast, negative->name, type, name);
 }
 
 std::shared_ptr<AllocaInstruction> IRBuilder::MakeAlloca(const IRType &type,
@@ -62,7 +91,7 @@ std::shared_ptr<AllocaInstruction> IRBuilder::MakeAlloca(const IRType &type,
   auto bb = CurrentBlock();
   auto inst = std::make_shared<AllocaInstruction>();
   inst->type = IRType::Pointer(type);
-  inst->name = name.empty() ? NextTempName("p") : name;
+  inst->name = name.empty() ? NextTempName("p") : UniqueName(name);
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
@@ -74,7 +103,7 @@ std::shared_ptr<LoadInstruction> IRBuilder::MakeLoad(const std::string &addr, co
   auto inst = std::make_shared<LoadInstruction>();
   inst->operands = {addr};
   inst->type = type;
-  inst->name = name.empty() ? NextTempName("ld") : name;
+  inst->name = name.empty() ? NextTempName("ld") : UniqueName(name);
   inst->align = align;
   inst->parent = bb.get();
   bb->AddInstruction(inst);
@@ -101,7 +130,7 @@ std::shared_ptr<CastInstruction> IRBuilder::MakeCast(CastInstruction::CastKind k
   inst->cast = kind;
   inst->operands = {value};
   inst->type = dest_type;
-  inst->name = name.empty() ? NextTempName("cast") : name;
+  inst->name = name.empty() ? NextTempName("cast") : UniqueName(name);
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
@@ -120,7 +149,7 @@ std::shared_ptr<CallInstruction> IRBuilder::MakeCall(const std::string &callee,
   inst->callee_type = fn_type;
   inst->is_vararg = is_vararg;
   inst->name =
-      ret_type.kind == IRTypeKind::kVoid ? "" : (name.empty() ? NextTempName("call") : name);
+      ret_type.kind == IRTypeKind::kVoid ? "" : (name.empty() ? NextTempName("call") : UniqueName(name));
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
@@ -136,7 +165,7 @@ std::shared_ptr<GetElementPtrInstruction> IRBuilder::MakeGEP(const std::string &
   inst->source_type = base_type;
   inst->indices = indices;
   inst->type = ComputeGEPType(base_type, indices);
-  inst->name = name.empty() ? NextTempName("gep") : name;
+  inst->name = name.empty() ? NextTempName("gep") : UniqueName(name);
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
@@ -172,7 +201,7 @@ std::shared_ptr<BinaryInstruction> IRBuilder::MakeDynamicGEP(const std::string &
   // Add offset to base pointer: result = base + offset
   // This performs pointer arithmetic
   auto result = MakeBinary(BinaryInstruction::Op::kAdd, base, offset->name,
-                           name.empty() ? NextTempName("ptr") : name);
+                           name.empty() ? NextTempName("ptr") : UniqueName(name));
 
   // Set the result type to pointer to element type
   result->type = IRType::Pointer(elem_type);
@@ -225,7 +254,7 @@ std::shared_ptr<InvokeInstruction> IRBuilder::MakeInvoke(
   inst->normal_dest = normal_dest;
   inst->unwind_dest = unwind_dest;
   inst->name =
-      ret_type.kind == IRTypeKind::kVoid ? "" : (name.empty() ? NextTempName("invoke") : name);
+      ret_type.kind == IRTypeKind::kVoid ? "" : (name.empty() ? NextTempName("invoke") : UniqueName(name));
   inst->parent = bb.get();
   bb->SetTerminator(inst);
   return inst;
@@ -238,7 +267,7 @@ std::shared_ptr<LandingPadInstruction> IRBuilder::MakeLandingPad(
   inst->is_cleanup = is_cleanup;
   inst->catch_types = catch_types;
   inst->type = IRType::Pointer(IRType::Void()); // Exception pointer
-  inst->name = name.empty() ? NextTempName("lpad") : name;
+  inst->name = name.empty() ? NextTempName("lpad") : UniqueName(name);
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
@@ -269,8 +298,12 @@ std::shared_ptr<BinaryInstruction> IRBuilder::MakeBinary(BinaryInstruction::Op o
   auto bb = CurrentBlock();
   auto inst = std::make_shared<BinaryInstruction>();
   inst->op = op;
+  using Op = BinaryInstruction::Op;
+  if (op >= Op::kCmpEq) inst->type = IRType::I1();
+  else if (op == Op::kFAdd || op == Op::kFSub || op == Op::kFMul ||
+           op == Op::kFDiv || op == Op::kFRem) inst->type = IRType::F64();
   inst->operands = {lhs, rhs};
-  inst->name = result.empty() ? NextTempName("v") : result;
+  inst->name = result.empty() ? NextTempName("v") : UniqueName(result);
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
@@ -328,12 +361,12 @@ std::shared_ptr<PhiInstruction> IRBuilder::MakePhi(
   auto phi = std::make_shared<PhiInstruction>();
   phi->type = type;
   phi->incomings = incomings;
-  phi->name = name.empty() ? NextTempName("phi") : name;
+  phi->name = name.empty() ? NextTempName("phi") : UniqueName(name);
   phi->parent = bb.get();
 
-  // PHI instructions must be at the beginning of a basic block
-  // Insert at the front of the instructions
-  bb->instructions.insert(bb->instructions.begin(), phi);
+  // PHI nodes are edge copies and live in the dedicated block collection.
+  // Placing them among ordinary instructions bypasses verification and codegen.
+  bb->AddPhi(phi);
   return phi;
 }
 

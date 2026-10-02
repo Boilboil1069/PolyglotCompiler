@@ -1,3 +1,4 @@
+#include <algorithm>
 // ============================================================================
 // PE-7-C: Backend `lea` / `ADRP+ADD` relocation emission for global refs
 //         consumed by external runtime calls (e.g. polyrt_println).
@@ -108,28 +109,19 @@ TEST_CASE("x86_64 emits REL32 lea relocation for polyrt_println string arg",
 
 // ----- arm64 ----------------------------------------------------------------
 
-TEST_CASE("arm64 emits ADRP+ADD relocation pair for polyrt_println string arg",
-          "[backend][arm64][printf_lea_reloc][pe7]") {
+TEST_CASE("arm64 emits PRINTLN syscall at its call site", "[backend][arm64][println]") {
     IRContext ctx;
     std::string ptr_name;
     BuildPrintlnishModule(ctx, &ptr_name);
-    REQUIRE(ptr_name == "str0.ptr");
-
     Arm64Target target(&ctx);
-    auto mc = target.EmitObjectCode();
-
-    // ADRP -> reloc type 2 (PAGE21) AND ADD -> reloc type 3 (PAGEOFF12),
-    // both in `.text`, both naming `str0.ptr`. Exactly one of each.
-    int page21 = 0;
-    int pageoff12 = 0;
-    int bl_polyrt = 0;
-    for (const auto &r : mc.relocs) {
-        if (r.section != ".text") continue;
-        if (r.symbol == "str0.ptr" && r.type == 2u) ++page21;
-        if (r.symbol == "str0.ptr" && r.type == 3u) ++pageoff12;
-        if (r.symbol == "polyrt_println" && r.type == 1u) ++bl_polyrt;
-    }
-    CHECK(page21 == 1);
-    CHECK(pageoff12 == 1);
-    CHECK(bl_polyrt == 1);
+    target.SetTargetOS("linux");
+    const auto mc = target.EmitObjectCode();
+    for (const auto &r : mc.relocs) CHECK(r.symbol != "polyrt_println");
+    REQUIRE_FALSE(mc.sections.empty());
+    const auto &bytes = mc.sections.front().data;
+    // svc #0 followed later by the exact static payload and appended newline.
+    const std::vector<std::uint8_t> svc{0x01, 0x00, 0x00, 0xd4};
+    const std::vector<std::uint8_t> payload{'h', 'i', '\n', '\n'};
+    CHECK(std::search(bytes.begin(), bytes.end(), svc.begin(), svc.end()) != bytes.end());
+    CHECK(std::search(bytes.begin(), bytes.end(), payload.begin(), payload.end()) != bytes.end());
 }

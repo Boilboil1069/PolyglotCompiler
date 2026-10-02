@@ -62,6 +62,11 @@ class MainWindow : public QMainWindow {
 public:
   explicit MainWindow(QWidget *parent = nullptr);
   ~MainWindow() override;
+  // Shared startup / test entry points use the same paths as UI actions.
+  void OpenWorkspaceFile(const QString &path);
+  void SetWorkspaceView(const QString &view);
+  void PreviewSymbol(const QString &symbol);
+
 
 protected:
   void closeEvent(QCloseEvent *event) override;
@@ -174,6 +179,9 @@ private:
   void SetupConnections();
   void SetupShortcuts();
   void SetupAnalysisTimer();
+  void NavigateToSource(const QString &path, int line, int column);
+  void ResolveEditorDefinition(CodeEditor *editor, int line, int column, bool peek);
+
 
   // Tab helpers
   int OpenFileInTab(const QString &path);
@@ -229,6 +237,11 @@ private:
 
   QSplitter *main_splitter_{nullptr};
   QSplitter *vertical_splitter_{nullptr};
+  QSplitter *workbench_splitter_{nullptr};
+  QWidget *source_pane_{nullptr};
+  QLabel *file_breadcrumb_{nullptr};
+  QToolBar *activity_toolbar_{nullptr};
+
 
   // ── Menu Bar ─────────────────────────────────────────────────────────
   QMenu *file_menu_{nullptr};

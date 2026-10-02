@@ -14,6 +14,20 @@
 namespace polyglot::runtime {
 namespace {
 
+#include "runtime/src/libs/native/arm64_runtime.inc"
+
+NativeFileRuntimeBlob BuildArm64(bool darwin) {
+  NativeFileRuntimeBlob blob;
+  const auto *words = darwin ? kArm64_darwin : kArm64_linux;
+  const auto count = darwin ? sizeof(kArm64_darwin) / 4 : sizeof(kArm64_linux) / 4;
+  for (std::size_t i = 0; i < count; ++i)
+    for (unsigned shift = 0; shift < 32; shift += 8)
+      blob.text.push_back((words[i] >> shift) & 255);
+  if (darwin) blob.symbols.assign(std::begin(kArm64_darwin_symbols), std::end(kArm64_darwin_symbols));
+  else blob.symbols.assign(std::begin(kArm64_linux_symbols), std::end(kArm64_linux_symbols));
+  return blob;
+}
+
 enum class FixupKind { kRel32 };
 
 struct Fixup {
@@ -345,12 +359,14 @@ NativeFileRuntimeBlob BuildNativeFileRuntime(const std::string &target_arch,
   const bool x86 = arch == "x86_64" || arch == "x64" || arch == "amd64";
   const bool darwin = os == "darwin" || os == "macos" || os == "mac" || os == "osx";
   const bool linux = os == "linux" || os == "gnu";
+  if ((arch == "arm64" || arch == "aarch64") && (darwin || linux))
+    return BuildArm64(darwin);
   if (x86 && (darwin || linux))
     return BuildX86(darwin, error);
 
   if (error) {
     *error = "automatic file runtime is not available for target '" + target_arch + "-" +
-             target_os + "' (supported: x86_64-linux, x86_64-darwin)";
+             target_os + "' (supported: x86_64/arm64 on Linux and Darwin)";
   }
   return {};
 }
@@ -358,7 +374,10 @@ NativeFileRuntimeBlob BuildNativeFileRuntime(const std::string &target_arch,
 bool IsNativeFileRuntimeSymbol(const std::string &name) {
   return name == kFileOpenReadSymbol || name == kFileNextIntSymbol ||
          name == kFileCloseReadSymbol || name == kFileOpenWriteSymbol ||
-         name == kFileWriteTextSymbol || name == kFileWriteIntSymbol;
+         name == kFileWriteTextSymbol || name == kFileWriteIntSymbol ||
+         name == "polyrt_array_new" || name == "polyrt_array_len" ||
+         name == "polyrt_array_get" || name == "polyrt_array_set" ||
+         name == "polyrt_array_free" || name == "polyrt_arg_text" || name == "polyrt_arg_int";
 }
 
 } // namespace polyglot::runtime

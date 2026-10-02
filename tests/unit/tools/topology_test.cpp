@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -846,6 +847,12 @@ TEST_CASE("Foreign signature extraction is diagnostic and module-atomic",
   }
 
   SECTION("unreadable local source reports E3023") {
+    // A directory deterministically fails ReadFile, even when tests run with
+    // elevated privileges. Do not depend on an untracked empty fixture folder.
+    const auto temporary = std::filesystem::temp_directory_path() /
+        ("polytopo-unreadable-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(temporary / "unreadable.contract");
+    fixture_dir = temporary.string();
     Diagnostics diagnostics;
     CHECK(extract("unreadable", diagnostics).empty());
     CHECK(std::any_of(diagnostics.All().begin(), diagnostics.All().end(),
@@ -855,6 +862,7 @@ TEST_CASE("Foreign signature extraction is diagnostic and module-atomic",
                                diagnostic.message.find("could not read") !=
                                    std::string::npos;
                       }));
+    std::filesystem::remove_all(temporary);
   }
 
   SECTION("overload collision rejects every signature from the module") {
@@ -1186,4 +1194,106 @@ TEST_CASE("TopologyGraph: drill-down visibility — collapsed hides context chil
       CHECK(e.context_node_id == stage2_id);
     }
   }
+}
+
+TEST_CASE("TopologyAnalyzer preserves values, operations and distinct call instances",
+          "[topology][dataflow]") {
+  auto graph = BuildGraph(R"(
+    FUNC increment(x: INT) -> INT { RETURN x + 1; }
+    FUNC compute(a: INT) -> INT {
+      LET first = increment(a);
+      LET second = increment(first);
+      RETURN second * 2;
+    }
+  )");
+  size_t calls = 0, literals = 0, operations = 0;
+  for (const auto &node : graph.Nodes()) {
+    if (node.display_name == "increment") ++calls;
+    if (node.kind == TopologyNode::Kind::kValue) ++literals;
+    if (node.kind == TopologyNode::Kind::kOperation) ++operations;
+  }
+  CHECK(calls == 2);
+  CHECK(literals == 2);
+  CHECK(operations == 2);
+  // Every value wire must run from a genuine output to a genuine input,
+  // including function parameters and returns. No accidental container cycles.
+  for (const auto &edge : graph.Edges()) {
+    const auto *source = graph.GetNode(edge.source_node_id);
+    const auto *target = graph.GetNode(edge.target_node_id);
+    REQUIRE(source); REQUIRE(target);
+    CHECK(std::any_of(source->outputs.begin(), source->outputs.end(),
+                      [&](const auto &p) { return p.id == edge.source_port_id; }));
+    CHECK(std::any_of(target->inputs.begin(), target->inputs.end(),
+                      [&](const auto &p) { return p.id == edge.target_port_id; }));
+  }
+  CHECK(graph.DetectCycles().empty());
+  TopologyValidator validator;
+  CHECK(validator.Validate(graph));
+}
+
+TEST_CASE("TopologyAnalyzer exposes verified i32 to f64 transfer and unknown signatures",
+          "[topology][dataflow][conversion]") {
+  Diagnostics diags;
+  PloyLexer lexer(R"(
+    FUNC sample() -> FLOAT {
+      LET a = CALL(cpp, source::read);
+      LET b = CALL(python, calibration::scale, a);
+      CALL(ruby, missing, b);
+      RETURN b;
+    }
+  )", "conversion.poly");
+  PloyParser parser(lexer, diags); parser.ParseModule();
+  auto module = parser.TakeModule(); REQUIRE(module);
+  REQUIRE_FALSE(diags.HasErrors());
+  PloySemaOptions options; options.enable_package_discovery = false;
+  PloySema sema(diags, options); sema.Analyze(module);
+  polyglot::ploy::FunctionSignature read;
+  read.name = "source::read"; read.language = "cpp";
+  read.return_type = polyglot::core::Type::Int(32, true);
+  read.param_count_known = true;
+  polyglot::ploy::FunctionSignature scale;
+  scale.name = "calibration::scale"; scale.language = "python";
+  scale.param_types = {polyglot::core::Type::Float(64)}; scale.param_names = {"value"};
+  scale.return_type = polyglot::core::Type::Float(64);
+  scale.param_count_known = true; scale.param_count = 1;
+  sema.InjectForeignSignatures({{"cpp::source::read", read}, {"python::calibration::scale", scale}});
+  TopologyAnalyzer analyzer(sema); REQUIRE(analyzer.Build(module));
+  auto &graph = analyzer.MutableGraph();
+  TopologyValidator validator; validator.Validate(graph);
+  bool found = false, unknown = false;
+  for (const auto &edge : graph.Edges()) {
+    const auto *src = graph.GetNode(edge.source_node_id);
+    const auto *dst = graph.GetNode(edge.target_node_id);
+    if (src->name == "cpp::source::read" && dst->name == "python::calibration::scale") {
+      CHECK(edge.status == TopologyEdge::Status::kImplicitConvert);
+      CHECK(edge.conversion_note.find("i32") != std::string::npos);
+      CHECK(edge.conversion_note.find("f64") != std::string::npos);
+      found = true;
+    }
+    if (dst->name == "ruby::missing") {
+      CHECK(edge.status == TopologyEdge::Status::kUnknown); unknown = true;
+    }
+  }
+  CHECK(found); CHECK(unknown);
+}
+
+#include "middle/include/ir/ir_builder.h"
+#include "tools/polyc/include/call_graph_emitter.h"
+
+TEST_CASE("Static call graph contains external endpoints and separate argument transfers",
+          "[topology][callgraph][emitter]") {
+  polyglot::ir::IRContext context;
+  auto function = context.CreateFunction("main", polyglot::ir::IRType::I64(), {});
+  polyglot::ir::IRBuilder builder(context);
+  builder.SetCurrentFunction(function);
+  builder.SetInsertPoint(function->CreateBlock("entry"));
+  auto value = builder.MakeLiteral(21LL);
+  builder.MakeCall("foreign::missing", {value->name}, polyglot::ir::IRType::I64(), "first");
+  builder.MakeCall("foreign::missing", {"first"}, polyglot::ir::IRType::I64(), "second");
+  const auto json = polyglot::tools::polyc::EmitCallGraphJson(context, "fixture.poly");
+  CHECK(json.find("\"id\":1,\"name\":\"foreign::missing\"") != std::string::npos);
+  CHECK(json.find("\"from\":0,\"to\":1,\"callsite_id\":0") != std::string::npos);
+  CHECK(json.find("\"from\":0,\"to\":1,\"callsite_id\":1") != std::string::npos);
+  CHECK(json.find("\"value\":\"first\",\"type\":\"i64\"") != std::string::npos);
+  CHECK(json.find("\"expected_type\":\"unknown\",\"transfer\":\"unresolved\"") != std::string::npos);
 }

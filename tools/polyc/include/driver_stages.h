@@ -51,7 +51,7 @@ namespace polyglot::tools {
 // ============================================================================
 
 /** @brief RegAllocChoice enumeration. */
-enum class RegAllocChoice { kLinearScan, kGraphColoring };
+enum class RegAllocChoice { kLinearScan, kGraphColoring, kStack };
 
 /** @brief DriverSettings data structure. */
 struct DriverSettings {

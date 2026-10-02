@@ -723,6 +723,11 @@ void LoopUnrolling(ir::Function &func, size_t factor) {
 // ============================================================================
 
 void StrengthReduction(ir::Function &func) {
+  std::unordered_map<std::string, std::uint64_t> constants;
+  for (const auto &block : func.blocks)
+    for (const auto &instruction : block->instructions)
+      if (auto literal = dynamic_cast<ir::ConstantInstruction *>(instruction.get()); literal && literal->type.IsInteger())
+        constants[literal->name] = literal->bits;
   for (auto &bb : func.blocks) {
     for (auto &inst : bb->instructions) {
       auto bin = std::dynamic_pointer_cast<ir::BinaryInstruction>(inst);
@@ -734,9 +739,9 @@ void StrengthReduction(ir::Function &func) {
       if (bin->op == ir::BinaryInstruction::Op::kMul) {
         if (bin->operands.size() >= 2) {
           const auto &rhs = bin->operands[1];
-          if (IsConstant(rhs, func)) {
+          if (constants.count(rhs) || IsConstant(rhs, func)) {
             try {
-              int64_t val = std::stoll(rhs);
+              int64_t val = constants.count(rhs) ? static_cast<int64_t>(constants.at(rhs)) : std::stoll(rhs);
               if (val > 0 && (val & (val - 1)) == 0) {
                 // val is a power of 2
                 int shift = 0;
@@ -758,9 +763,9 @@ void StrengthReduction(ir::Function &func) {
       if (bin->op == ir::BinaryInstruction::Op::kUDiv) {
         if (bin->operands.size() >= 2) {
           const auto &rhs = bin->operands[1];
-          if (IsConstant(rhs, func)) {
+          if (constants.count(rhs) || IsConstant(rhs, func)) {
             try {
-              int64_t val = std::stoll(rhs);
+              int64_t val = constants.count(rhs) ? static_cast<int64_t>(constants.at(rhs)) : std::stoll(rhs);
               if (val > 0 && (val & (val - 1)) == 0) {
                 // val is a power of 2
                 int shift = 0;

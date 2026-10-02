@@ -7,6 +7,8 @@
  * @date     2026-04-28
  */
 #include <cstddef>
+#include <bit>
+#include <iomanip>
 #include <iosfwd>
 #include <ostream>
 #include <sstream>
@@ -22,6 +24,16 @@ namespace polyglot::backends::wasm {
 namespace {
 
 void EmitInstructionWATImpl(std::ostream &os, const std::shared_ptr<ir::Instruction> &inst) {
+  if (auto *constant = dynamic_cast<ir::ConstantInstruction *>(inst.get())) {
+    if (constant->type.kind == ir::IRTypeKind::kF32)
+      os << "    f32.const " << std::hexfloat << std::bit_cast<float>(static_cast<std::uint32_t>(constant->bits)) << std::defaultfloat << "\n";
+    else if (constant->type.kind == ir::IRTypeKind::kF64)
+      os << "    f64.const " << std::hexfloat << std::bit_cast<double>(constant->bits) << std::defaultfloat << "\n";
+    else if (constant->type.kind == ir::IRTypeKind::kI64)
+      os << "    i64.const " << static_cast<std::int64_t>(constant->bits) << "\n";
+    else os << "    i32.const " << static_cast<std::int32_t>(constant->bits) << "\n";
+    return;
+  }
   if (auto *bin = dynamic_cast<ir::BinaryInstruction *>(inst.get())) {
     using Op = ir::BinaryInstruction::Op;
     bool is_i64 = (bin->type.kind == ir::IRTypeKind::kI64);

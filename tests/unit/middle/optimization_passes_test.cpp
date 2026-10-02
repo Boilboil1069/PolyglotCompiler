@@ -938,3 +938,64 @@ TEST_CASE("Optimization - Performance", "[opt][benchmark]") {
     REQUIRE(func.blocks.size() == 1);
     REQUIRE(func.blocks[0]->terminator != nullptr);
 }
+
+TEST_CASE("Typed constant folding keeps widths and exact float bits", "[opt][regression][typed-constants]") {
+    auto constant = [](const std::string &name, IRType type, std::uint64_t bits) {
+        auto value = std::make_shared<ConstantInstruction>();
+        value->name = name; value->type = type; value->bits = bits;
+        return value;
+    };
+    SECTION("i8 arithmetic wraps before the next comparison") {
+        Function function = CreateFuncWithEntry("narrow");
+        auto *entry = function.blocks.front().get();
+        entry->AddInstruction(constant("a", IRType::I8(), 127));
+        entry->AddInstruction(constant("b", IRType::I8(), 1));
+        entry->AddInstruction(MakeBinOp(BinaryInstruction::Op::kAdd, "sum", "a", "b", IRType::I8()));
+        entry->AddInstruction(constant("zero", IRType::I8(), 0));
+        entry->AddInstruction(MakeBinOp(BinaryInstruction::Op::kCmpSlt, "negative", "sum", "zero", IRType::I1()));
+        entry->SetTerminator(MakeRet("negative"));
+        polyglot::ir::passes::ConstantFold(function);
+        auto sum = std::dynamic_pointer_cast<ConstantInstruction>(entry->instructions[2]);
+        auto negative = std::dynamic_pointer_cast<ConstantInstruction>(entry->instructions[4]);
+        REQUIRE(sum); CHECK(sum->bits == 128); CHECK(sum->type.kind == IRTypeKind::kI8);
+        REQUIRE(negative); CHECK(negative->bits == 1);
+    }
+    SECTION("binary64 mantissa is not rounded through decimal text") {
+        Function function = CreateFuncWithEntry("precise");
+        auto *entry = function.blocks.front().get();
+        entry->AddInstruction(constant("a", IRType::F64(), 0x3ff0000000000001ULL));
+        entry->AddInstruction(constant("b", IRType::F64(), 0x4000000000000000ULL));
+        entry->AddInstruction(MakeBinOp(BinaryInstruction::Op::kFMul, "product", "a", "b", IRType::F64()));
+        entry->SetTerminator(MakeRet("product"));
+        polyglot::ir::passes::ConstantFold(function);
+        auto value = std::dynamic_pointer_cast<ConstantInstruction>(entry->instructions.back());
+        REQUIRE(value); CHECK(value->bits == 0x4000000000000001ULL);
+        CHECK(entry->terminator->operands[0] == "product");
+    }
+    SECTION("ordered NaN inequality and unsigned comparison retain semantics") {
+        Function function = CreateFuncWithEntry("ordered");
+        auto *entry = function.blocks.front().get();
+        entry->AddInstruction(constant("nan", IRType::F64(), 0x7ff8000000000000ULL));
+        entry->AddInstruction(constant("one", IRType::F64(), 0x3ff0000000000000ULL));
+        entry->AddInstruction(MakeBinOp(BinaryInstruction::Op::kCmpFne, "different", "nan", "one", IRType::I1()));
+        entry->AddInstruction(constant("max", IRType::I64(false), ~std::uint64_t(0)));
+        entry->AddInstruction(constant("zero", IRType::I64(false), 0));
+        entry->AddInstruction(MakeBinOp(BinaryInstruction::Op::kCmpUgt, "above", "max", "zero", IRType::I1()));
+        entry->SetTerminator(MakeRet("above"));
+        polyglot::ir::passes::ConstantFold(function);
+        auto different = std::dynamic_pointer_cast<ConstantInstruction>(entry->instructions[2]);
+        auto above = std::dynamic_pointer_cast<ConstantInstruction>(entry->instructions[5]);
+        REQUIRE(different); CHECK(different->bits == 0);
+        REQUIRE(above); CHECK(above->bits == 1);
+    }
+    SECTION("division errors remain runtime operations") {
+        Function function = CreateFuncWithEntry("division");
+        auto *entry = function.blocks.front().get();
+        entry->AddInstruction(MakeBinOp(BinaryInstruction::Op::kSDiv, "zero", "7", "0"));
+        entry->AddInstruction(MakeBinOp(BinaryInstruction::Op::kSDiv, "overflow", "-9223372036854775808", "-1"));
+        entry->SetTerminator(MakeRet("overflow"));
+        polyglot::ir::passes::ConstantFold(function);
+        CHECK(dynamic_cast<BinaryInstruction *>(entry->instructions[0].get()));
+        CHECK(dynamic_cast<BinaryInstruction *>(entry->instructions[1].get()));
+    }
+}

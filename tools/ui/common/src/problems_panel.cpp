@@ -91,7 +91,7 @@ ProblemsPanel::ProblemsPanel(ProblemsAggregator *aggregator, QWidget *parent)
     QPointer<ProblemsPanel> self(this);
     aggregator_->SetChangeCallback([self]() {
       if (!self) return;
-      QMetaObject::invokeMethod(self.data(), "Refresh", Qt::QueuedConnection);
+      QMetaObject::invokeMethod(self.data(), &ProblemsPanel::Refresh, Qt::QueuedConnection);
     });
   }
   Refresh();

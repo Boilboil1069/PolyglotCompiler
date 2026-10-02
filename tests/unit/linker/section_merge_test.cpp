@@ -315,6 +315,7 @@ TEST_CASE("Linker applies a Mach-O branch relocation to a same-object local symb
   config.output_file = object_path + ".out";
   config.output_format = OutputFormat::kExecutable;
   config.target_arch = TargetArch::kX86_64;
+  config.target_triple = *polyglot::common::ParseTargetTriple("x86_64-apple-darwin").triple;
 
   Linker linker(config);
   REQUIRE(linker.LoadObjectFiles());

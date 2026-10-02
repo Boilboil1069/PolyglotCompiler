@@ -2027,10 +2027,24 @@ std::shared_ptr<Expression> JsParser::ParseArrowOrParenExpr() {
   auto saved_doc = pending_doc_;
   bool saved_line_terminator = line_terminator_before_current_;
 
-  // Try to parse as arrow function: `(params) =>` or `() =>`
-  auto params = ParseFunctionParams(); // consumes through ')'
-  auto ret_type = ExtractReturnType(params);
-  if (IsSymbol("=>")) {
+  // Look ahead without parsing parameters: speculative parameter parsing
+  // reports errors for ordinary expressions such as `(a - b)` and cannot
+  // retract those diagnostics when falling back to a parenthesized expression.
+  int depth = 1;
+  Advance();
+  while (depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile) {
+    if (IsSymbol("(")) ++depth;
+    else if (IsSymbol(")")) --depth;
+    Advance();
+  }
+  const bool is_arrow = depth == 0 && IsSymbol("=>") && !line_terminator_before_current_;
+  lexer_.RestoreState(state);
+  current_ = saved;
+  pending_doc_ = saved_doc;
+  line_terminator_before_current_ = saved_line_terminator;
+  if (is_arrow) {
+    auto params = ParseFunctionParams(); // consumes through ')'
+    auto ret_type = ExtractReturnType(params);
     Advance();
     if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2015)) {
       diagnostics_.ReportError(

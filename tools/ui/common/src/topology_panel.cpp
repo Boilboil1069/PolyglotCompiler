@@ -9,6 +9,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsSceneContextMenuEvent>
 #include <QGraphicsSceneHoverEvent>
@@ -25,7 +26,10 @@
 #include <QSettings>
 #include <QTextStream>
 #include <QToolTip>
+#include <QToolButton>
+#include <QPainterPathStroker>
 #include <QWheelEvent>
+#include <QResizeEvent>
 #include <algorithm>
 #include <cmath>
 #include <deque>
@@ -131,9 +135,9 @@ static QColor StatusColor(const QString &status) {
 // Node geometry constants
 // ============================================================================
 
-static constexpr qreal kNodeWidth = 220.0;
-static constexpr qreal kNodeHeaderHeight = 30.0;
-static constexpr qreal kPortHeight = 20.0;
+static constexpr qreal kNodeWidth = 264.0;
+static constexpr qreal kNodeHeaderHeight = 60.0;
+static constexpr qreal kPortHeight = 26.0;
 static constexpr qreal kPortDotRadius = 5.0;
 static constexpr qreal kPortMargin = 12.0;
 
@@ -283,7 +287,7 @@ QPointF TopoNodeItem::AddInputPort(uint64_t port_id, const QString &name,
   pl.label = new QGraphicsTextItem(name + ": " + type_name, this);
   pl.label->setDefaultTextColor(Qt::white);
   auto font = pl.label->font();
-  font.setPointSize(8);
+  font.setPointSize(9);
   pl.label->setFont(font);
   input_labels_.push_back(pl);
 
@@ -300,7 +304,7 @@ QPointF TopoNodeItem::AddOutputPort(uint64_t port_id, const QString &name,
   pl.label = new QGraphicsTextItem(name + ": " + type_name, this);
   pl.label->setDefaultTextColor(Qt::white);
   auto font = pl.label->font();
-  font.setPointSize(8);
+  font.setPointSize(9);
   pl.label->setFont(font);
   output_labels_.push_back(pl);
 
@@ -421,136 +425,60 @@ QVariant TopoNodeItem::itemChange(GraphicsItemChange change, const QVariant &val
 }
 
 void TopoNodeItem::LayoutPorts() {
-  qreal total_height =
-      kNodeHeaderHeight +
-      static_cast<qreal>(std::max(input_ports_.size(), output_ports_.size())) * kPortHeight +
-      kPortMargin;
-  setRect(0, 0, kNodeWidth, total_height);
-
-  // Position input ports on the left
+  // Inputs and outputs occupy separate rows. Long labels can never collide.
+  qreal width = kNodeWidth;
+  for (const auto &entry : input_labels_)
+    width = std::max(width, entry.label->boundingRect().width() + 40);
+  for (const auto &entry : output_labels_)
+    width = std::max(width, entry.label->boundingRect().width() + 40);
+  qreal output_top = kNodeHeaderHeight + input_ports_.size() * kPortHeight;
+  if (!input_ports_.empty() && !output_ports_.empty()) output_top += 12;
+  const qreal total_height = output_top + output_ports_.size() * kPortHeight + kPortMargin;
+  setRect(0, 0, width, total_height);
   for (size_t i = 0; i < input_ports_.size(); ++i) {
-    qreal y = kNodeHeaderHeight + static_cast<qreal>(i) * kPortHeight + kPortHeight / 2;
+    qreal y = kNodeHeaderHeight + i * kPortHeight + kPortHeight / 2;
     input_ports_[i]->setPos(0, y);
-    if (i < input_labels_.size() && input_labels_[i].label) {
-      input_labels_[i].label->setPos(kPortDotRadius + 4, y - 10);
-    }
+    input_labels_[i].label->setPos(12, y - input_labels_[i].label->boundingRect().height() / 2);
   }
-
-  // Position output ports on the right
   for (size_t i = 0; i < output_ports_.size(); ++i) {
-    qreal y = kNodeHeaderHeight + static_cast<qreal>(i) * kPortHeight + kPortHeight / 2;
-    output_ports_[i]->setPos(kNodeWidth, y);
-    if (i < output_labels_.size() && output_labels_[i].label) {
-      qreal lw = output_labels_[i].label->boundingRect().width();
-      output_labels_[i].label->setPos(kNodeWidth - lw - kPortDotRadius - 4, y - 10);
-    }
+    qreal y = output_top + i * kPortHeight + kPortHeight / 2;
+    output_ports_[i]->setPos(width, y);
+    auto *label = output_labels_[i].label;
+    label->setPos(width - label->boundingRect().width() - 12, y - label->boundingRect().height() / 2);
   }
 }
 
 void TopoNodeItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                          QWidget *widget) {
-  Q_UNUSED(option);
-  Q_UNUSED(widget);
-
-  QRectF r = rect();
-  QColor base_color = LanguageColor(language_);
-
-  // Background
+  Q_UNUSED(option); Q_UNUSED(widget);
   painter->setRenderHint(QPainter::Antialiasing);
-  QColor bg = base_color.darker(300);
-  bg.setAlpha(220);
-  painter->setBrush(QBrush(bg));
-
-  // Determine border style
-  QPen border_pen(base_color, 2);
-  if (debug_active_) {
-    // Bright yellow glow with pulse animation for active-debug node
-    QColor pulse_yellow(255, 235, 59, static_cast<int>(255 * pulse_opacity_));
-    border_pen.setColor(pulse_yellow);
-    border_pen.setWidth(4);
-  } else if (highlight_error_) {
-    border_pen.setColor(QColor("#F44336"));
-    border_pen.setWidth(3);
-  }
-  if (isSelected()) {
-    border_pen.setColor(Qt::white);
-    border_pen.setWidth(3);
-  }
-  painter->setPen(border_pen);
-  painter->drawRoundedRect(r, 6, 6);
-
-  // Debug-active overlay: translucent yellow tint with pulse
-  if (debug_active_) {
-    QColor overlay(255, 235, 59, static_cast<int>(30 * pulse_opacity_));
-    painter->setBrush(QBrush(overlay));
-    painter->setPen(Qt::NoPen);
-    painter->drawRoundedRect(r, 6, 6);
-  }
-
-  // Header background
-  QRectF header(r.x(), r.y(), r.width(), kNodeHeaderHeight);
-  painter->setBrush(QBrush(base_color));
+  QColor accent = LanguageColor(language_);
+  QPen border(isSelected() ? QColor("#a5b4fc") : QColor("#35445d"), isSelected() ? 2.5 : 1.2);
+  if (highlight_error_) border = QPen(QColor("#f87171"), 2.5);
+  if (debug_active_) border = QPen(QColor(255, 215, 95, int(255 * pulse_opacity_)), 3);
+  painter->setPen(border);
+  painter->setBrush(QColor("#172237"));
+  painter->drawRoundedRect(rect(), 10, 10);
   painter->setPen(Qt::NoPen);
-  painter->drawRoundedRect(header, 6, 6);
-  // Fill bottom corners of header
-  painter->drawRect(header.adjusted(0, header.height() / 2, 0, 0));
-
-  // Header text
-  painter->setPen(Qt::white);
-  QFont header_font;
-  header_font.setPointSize(9);
-  header_font.setBold(true);
-  painter->setFont(header_font);
-
-  // Draw expand/collapse indicator for expandable nodes
-  qreal text_left = 8;
-  if (expandable_) {
-    // Draw a small triangle: ▶ (collapsed) or ▼ (expanded)
-    painter->save();
-    painter->setBrush(QBrush(Qt::white));
-    painter->setPen(Qt::NoPen);
-    QPolygonF triangle;
-    constexpr qreal kTriSize = 6.0;
-    qreal cx = header.x() + 10;
-    qreal cy = header.y() + header.height() / 2;
-    if (expanded_) {
-      // ▼ pointing down
-      triangle << QPointF(cx - kTriSize, cy - kTriSize * 0.5)
-               << QPointF(cx + kTriSize, cy - kTriSize * 0.5) << QPointF(cx, cy + kTriSize * 0.5);
-    } else {
-      // ▶ pointing right
-      triangle << QPointF(cx - kTriSize * 0.5, cy - kTriSize) << QPointF(cx + kTriSize * 0.5, cy)
-               << QPointF(cx - kTriSize * 0.5, cy + kTriSize);
-    }
-    painter->drawPolygon(triangle);
-    painter->restore();
-    painter->setPen(Qt::white);
-    text_left = 22; // Shift header text right to make room for the indicator
-  }
-
-  QString header_text = "[" + kind_ + "] " + name_;
-  painter->drawText(header.adjusted(text_left, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft,
-                    header_text);
-
-  // Language badge
-  QFont badge_font;
-  badge_font.setPointSize(7);
-  painter->setFont(badge_font);
-  QString badge = language_;
-  QFontMetrics fm(badge_font);
-  qreal badge_w = fm.horizontalAdvance(badge) + 8;
-  QRectF badge_rect(r.width() - badge_w - 6, 5, badge_w, 18);
-  painter->setBrush(QBrush(base_color.lighter(130)));
-  painter->setPen(Qt::NoPen);
-  painter->drawRoundedRect(badge_rect, 4, 4);
-  painter->setPen(Qt::white);
-  painter->drawText(badge_rect, Qt::AlignCenter, badge);
-
-  // Debug indicator icon in header
-  if (debug_active_) {
-    painter->setBrush(QBrush(QColor("#FFEB3B")));
-    painter->setPen(Qt::NoPen);
-    painter->drawEllipse(QPointF(r.width() - badge_w - 18, kNodeHeaderHeight / 2), 4, 4);
+  painter->setBrush(accent);
+  painter->drawRoundedRect(QRectF(12, 13, 4, 31), 2, 2);
+  QFont title_font = painter->font();
+  title_font.setPointSize(10); title_font.setBold(true);
+  painter->setFont(title_font);
+  painter->setPen(QColor("#eef2ff"));
+  const auto title = QFontMetricsF(title_font).elidedText(name_, Qt::ElideMiddle, rect().width() - 42);
+  painter->drawText(QRectF(24, 10, rect().width() - 38, 23), Qt::AlignLeft | Qt::AlignVCenter, title);
+  QFont sub_font = title_font; sub_font.setPointSize(8); sub_font.setBold(false);
+  painter->setFont(sub_font); painter->setPen(QColor("#9aacc7"));
+  QString context = language_.toUpper() + "  ·  " + kind_;
+  if (source_line_ > 0) context += "  ·  L" + QString::number(source_line_);
+  if (expandable_) context += "  ·  open flow ↗";
+  painter->drawText(QRectF(24, 33, rect().width() - 36, 17), context);
+  painter->setPen(QPen(QColor("#2a3a53"), 1));
+  painter->drawLine(QPointF(12, kNodeHeaderHeight - 5), QPointF(rect().width() - 12, kNodeHeaderHeight - 5));
+  if (!input_ports_.empty() && !output_ports_.empty()) {
+    const qreal divider = kNodeHeaderHeight + input_ports_.size() * kPortHeight + 6;
+    painter->drawLine(QPointF(12, divider), QPointF(rect().width() - 12, divider));
   }
 }
 
@@ -571,8 +499,8 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
   QMenu menu;
 
   // Go to Source — navigate to the source location for this node
-  QAction *goto_source = menu.addAction("Go to Source");
-  goto_source->setEnabled(!source_file_.isEmpty() && source_line_ > 0);
+  QAction *goto_source = menu.addAction("Go to Definition");
+  goto_source->setEnabled(!definition_symbol_.isEmpty() || (!source_file_.isEmpty() && source_line_ > 0));
 
   // Show Details — select this node and show its details in the side panel
   QAction *show_details = menu.addAction("Show Details");
@@ -592,6 +520,11 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
     return;
 
   if (chosen == goto_source) {
+    if (!definition_symbol_.isEmpty()) {
+      if (panel) emit panel->DefinitionRequested(definition_symbol_, definition_context_);
+      else if (drill_win) emit drill_win->DefinitionRequested(definition_symbol_, definition_context_);
+      return;
+    }
     if (panel) {
       emit panel->NodeDoubleClicked(source_file_, source_line_);
     } else if (drill_win) {
@@ -630,9 +563,11 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
       panel->RemoveEdge(edge);
     }
 
-    // Remove the node from the scene
-    scene()->removeItem(this);
-    delete this;
+    // Use the same removal path as multi-selection so item indices and
+    // layout metadata cannot retain a pointer to a deleted card.
+    scene()->clearSelection();
+    setSelected(true);
+    QMetaObject::invokeMethod(panel, "OnBatchDelete", Qt::DirectConnection);
   }
 }
 
@@ -704,6 +639,8 @@ TopoEdgeItem::TopoEdgeItem(uint64_t edge_id, const QPointF &start, const QPointF
                            const QString &status, QGraphicsItem *parent) :
     QGraphicsPathItem(parent), edge_id_(edge_id), status_(status) {
   setAcceptHoverEvents(true);
+  setFlag(QGraphicsItem::ItemIsSelectable);
+  setZValue(-1);
   SetStatus(status);
   RebuildPath(start, end);
 }
@@ -722,6 +659,19 @@ void TopoEdgeItem::SetStatus(const QString &status) {
 
 void TopoEdgeItem::UpdateEndpoints(const QPointF &start, const QPointF &end) {
   RebuildPath(start, end);
+}
+
+void TopoEdgeItem::RouteVia(qreal lane_y) {
+  const QPointF start = path().pointAtPercent(0);
+  const QPointF end = end_point_;
+  const qreal lead = std::min<qreal>(60, std::max<qreal>(30, (end.x() - start.x()) / 4));
+  QPainterPath routed(start);
+  routed.cubicTo(start + QPointF(lead, 0), QPointF(start.x() + lead, lane_y),
+                 QPointF(start.x() + lead * 2, lane_y));
+  routed.lineTo(end.x() - lead * 2, lane_y);
+  routed.cubicTo(QPointF(end.x() - lead, lane_y), end - QPointF(lead, 0), end);
+  setPath(routed);
+  if (label_item_) SetFlowLabel(flow_label_, flow_detail_);
 }
 
 void TopoEdgeItem::SetEndpointIds(uint64_t src_node, uint64_t src_port, uint64_t tgt_node,
@@ -752,18 +702,55 @@ void TopoEdgeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
   }
 }
 
+void TopoEdgeItem::SetFlowLabel(const QString &label, const QString &detail) {
+  flow_label_ = label;
+  flow_detail_ = detail;
+  setToolTip(detail);
+  if (!label_item_) {
+    label_item_ = new QGraphicsTextItem(this);
+    label_item_->setDefaultTextColor(QColor("#cedbf0"));
+    QFont font; font.setPointSize(8); label_item_->setFont(font);
+  }
+  label_item_->setHtml(R"(<span style="background-color:#0e1727; color:#cedbf0;">)" + label.toHtmlEscaped() + "</span>");
+  label_item_->setToolTip(detail);
+  auto center = path().pointAtPercent(0.5);
+  label_item_->setPos(center - QPointF(label_item_->boundingRect().width() / 2, 22));
+}
+
+QPainterPath TopoEdgeItem::shape() const {
+  QPainterPathStroker stroker;
+  stroker.setWidth(14);
+  return stroker.createStroke(path());
+}
+
+void TopoEdgeItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) {
+  QPen stroke = pen();
+  if (isSelected()) { stroke.setColor(QColor("#c7d2fe")); stroke.setWidthF(3.5); }
+  painter->setRenderHint(QPainter::Antialiasing);
+  painter->setPen(stroke); painter->setBrush(Qt::NoBrush);
+  painter->drawPath(path());
+  painter->setBrush(stroke.color()); painter->setPen(Qt::NoPen);
+  QPolygonF arrow;
+  arrow << end_point_ << end_point_ + QPointF(-11, -5) << end_point_ + QPointF(-11, 5);
+  painter->drawPolygon(arrow);
+}
+
 void TopoEdgeItem::RebuildPath(const QPointF &start, const QPointF &end) {
   QPainterPath path;
   path.moveTo(start);
-
-  // Cubic bezier for smooth connection
-  qreal dx = std::abs(end.x() - start.x()) * 0.5;
-  dx = std::max(dx, 40.0); // Minimum curvature for close nodes
-  QPointF c1(start.x() + dx, start.y());
-  QPointF c2(end.x() - dx, end.y());
-  path.cubicTo(c1, c2, end);
-
+  qreal dx = std::max(std::abs(end.x() - start.x()) * 0.45, 60.0);
+  if (end.x() <= start.x() + 20) {
+    // Back edges travel above the cards rather than cutting through them.
+    const qreal top = std::min(start.y(), end.y()) - 100;
+    path.cubicTo(start + QPointF(70, 0), QPointF(start.x() + 70, top), QPointF(start.x(), top));
+    path.lineTo(end.x() - 70, top);
+    path.cubicTo(QPointF(end.x() - 110, top), end - QPointF(70, 0), end);
+  } else {
+    path.cubicTo(start + QPointF(dx, 0), end - QPointF(dx, 0), end);
+  }
+  end_point_ = end;
   setPath(path);
+  if (label_item_) SetFlowLabel(flow_label_, flow_detail_);
 }
 
 // ============================================================================
@@ -827,11 +814,24 @@ void TopoGraphicsView::wheelEvent(QWheelEvent *event) {
   // Zoom with Ctrl+wheel, scroll without Ctrl
   if (event->modifiers() & Qt::ControlModifier) {
     double factor = (event->angleDelta().y() > 0) ? 1.15 : (1.0 / 1.15);
-    scale(factor, factor);
+    const auto zoom = transform().m11() * factor;
+    if (zoom >= 0.12 && zoom <= 3.5) scale(factor, factor);
     event->accept();
   } else {
     QGraphicsView::wheelEvent(event);
   }
+}
+
+void TopoGraphicsView::drawBackground(QPainter *painter, const QRectF &rect) {
+  painter->fillRect(rect, QColor("#0e1727"));
+  if (transform().m11() < 0.3) return;
+  painter->setPen(QPen(QColor("#26324a"), 1));
+  constexpr qreal step = 24;
+  const qreal start_x = std::floor(rect.left() / step) * step;
+  const qreal start_y = std::floor(rect.top() / step) * step;
+  for (qreal x = start_x; x < rect.right(); x += step)
+    for (qreal y = start_y; y < rect.bottom(); y += step)
+      painter->drawPoint(QPointF(x, y));
 }
 
 // ============================================================================
@@ -915,32 +915,42 @@ void TopologyPanel::SetupUI() {
   auto *right_layout = new QVBoxLayout(right_panel);
   right_layout->setContentsMargins(4, 4, 4, 4);
 
-  auto *details_label = new QLabel("Node Details", right_panel);
+  auto *details_label = new QLabel("FLOW INSPECTOR", right_panel);
   details_label->setStyleSheet("font-weight: bold; padding: 4px;");
   right_layout->addWidget(details_label);
-
+  inspector_tabs_ = new QTabWidget(right_panel);
+  inspector_tabs_->setDocumentMode(true);
+  right_layout->addWidget(inspector_tabs_, 1);
   details_tree_ = new QTreeWidget(right_panel);
   details_tree_->setHeaderLabels({"Property", "Value"});
   details_tree_->header()->setStretchLastSection(true);
-  right_layout->addWidget(details_tree_);
-
-  auto *diag_label = new QLabel("Diagnostics", right_panel);
-  diag_label->setStyleSheet("font-weight: bold; padding: 4px;");
-  right_layout->addWidget(diag_label);
-
+  details_tree_->setWordWrap(true);
+  details_tree_->setColumnWidth(0, 105);
+  inspector_tabs_->addTab(details_tree_, "Selection");
   diagnostics_output_ = new QPlainTextEdit(right_panel);
   diagnostics_output_->setReadOnly(true);
   diagnostics_output_->setMaximumBlockCount(500);
-  right_layout->addWidget(diagnostics_output_);
+  inspector_tabs_->addTab(diagnostics_output_, "Diagnostics");
 
   splitter_->addWidget(right_panel);
-  splitter_->setStretchFactor(0, 3);
+  splitter_->setSizes({840, 245});
+  splitter_->setChildrenCollapsible(true);
+  right_panel->setMinimumWidth(160);
+  splitter_->setStretchFactor(0, 4);
   splitter_->setStretchFactor(1, 1);
-  layout->addWidget(splitter_);
+  layout->addWidget(splitter_, 1);
+
+  right_panel->hide();
 
   // Status bar
-  status_label_ = new QLabel("No topology loaded", this);
+  auto *legend = new QLabel("● direct value   ● numeric conversion   ┄ unresolved   → input  ·  Drag canvas to pan; Ctrl+wheel to zoom", this);
+  legend->setWordWrap(true);
+  legend->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+  legend->setStyleSheet("padding: 7px; color: #94a3b8; font-size: 10px;");
+  layout->addWidget(legend);
+  status_label_ = new QLabel("Open a Poly source to inspect its function data flow", this);
   status_label_->setStyleSheet("padding: 4px; color: #888;");
+  status_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
   layout->addWidget(status_label_);
 }
 
@@ -1003,56 +1013,45 @@ void TopologyPanel::SetupToolbar() {
   view_mode_combo_->addItem("LINK Bindings");   // index 0 = kLink
   view_mode_combo_->addItem("CALL Data Flow");  // index 1 = kCall
   view_mode_combo_->addItem("PIPELINE Stages"); // index 2 = kPipeline
+  view_mode_combo_->setCurrentIndex(1);
   connect(view_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
           &TopologyPanel::OnViewModeChanged);
   toolbar_->addWidget(view_mode_combo_);
 
   toolbar_->addSeparator();
-
-  // Grouping mode selector: cluster nodes visually
-  group_mode_combo_ = new QComboBox(toolbar_);
-  group_mode_combo_->addItem("No Grouping");       // index 0 = kNone
-  group_mode_combo_->addItem("Group by Language"); // index 1 = kLanguage
-  group_mode_combo_->addItem("Group by Pipeline"); // index 2 = kPipeline
-  group_mode_combo_->addItem("Group by Module");   // index 3 = kModule
+  auto *more = new QToolButton(toolbar_);
+  more->setText("More ⋯");
+  more->setPopupMode(QToolButton::InstantPopup);
+  auto *menu = new QMenu(more);
+  menu->addAction("Export PNG", this, &TopologyPanel::OnExportPng);
+  menu->addAction("Export JSON", this, &TopologyPanel::OnExportJson);
+  menu->addAction("Export DOT", this, &TopologyPanel::OnExportDot);
+  menu->addSeparator();
+  menu->addAction("Highlight selected", this, &TopologyPanel::OnBatchHighlight);
+  menu->addAction("Export selected", this, &TopologyPanel::OnBatchExport);
+  menu->addAction("Generate .poly", this, &TopologyPanel::OnGeneratePloy);
+  menu->addSeparator();
+  menu->addAction("Toggle inspector", this, [this] {
+    auto *inspector = splitter_->widget(1); inspector->setVisible(!inspector->isVisible());
+  });
+  auto *group_menu = menu->addMenu("Group cards");
+  group_menu->addAction("No grouping", this, [this] { OnGroupModeChanged(0); });
+  group_menu->addAction("By function / pipeline", this, [this] { OnGroupModeChanged(2); });
+  group_menu->addAction("By language", this, [this] { OnGroupModeChanged(1); });
+  group_menu->addAction("By module", this, [this] { OnGroupModeChanged(3); });
+  more->setMenu(menu); toolbar_->addWidget(more);
+  layout_combo_->setMaximumWidth(150);
+  view_mode_combo_->setMaximumWidth(135);
+  toolbar_->setStyleSheet("QToolBar { spacing: 4px; padding: 6px; border: 0; }"
+                          "QPushButton, QToolButton, QComboBox { padding: 5px 8px; }");
+  // Kept for existing programmatic grouping actions; the compact menu leaves
+  // canvas space available when the graph is next to the editor.
+  group_mode_combo_ = new QComboBox(this);
+  group_mode_combo_->addItems({"No Grouping", "Group by Language", "Group by Pipeline", "Group by Module"});
+  group_mode_combo_->hide();
   connect(group_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
           &TopologyPanel::OnGroupModeChanged);
-  toolbar_->addWidget(group_mode_combo_);
 
-  toolbar_->addSeparator();
-
-  // Batch operations for multi-selected items
-  auto *batch_delete = new QPushButton("Delete Selected", toolbar_);
-  connect(batch_delete, &QPushButton::clicked, this, &TopologyPanel::OnBatchDelete);
-  toolbar_->addWidget(batch_delete);
-
-  auto *batch_highlight = new QPushButton("Highlight Selected", toolbar_);
-  connect(batch_highlight, &QPushButton::clicked, this, &TopologyPanel::OnBatchHighlight);
-  toolbar_->addWidget(batch_highlight);
-
-  auto *batch_export = new QPushButton("Export Selected", toolbar_);
-  connect(batch_export, &QPushButton::clicked, this, &TopologyPanel::OnBatchExport);
-  toolbar_->addWidget(batch_export);
-
-  toolbar_->addSeparator();
-
-  auto *export_dot = new QPushButton("Export DOT", toolbar_);
-  connect(export_dot, &QPushButton::clicked, this, &TopologyPanel::OnExportDot);
-  toolbar_->addWidget(export_dot);
-
-  auto *export_json = new QPushButton("Export JSON", toolbar_);
-  connect(export_json, &QPushButton::clicked, this, &TopologyPanel::OnExportJson);
-  toolbar_->addWidget(export_json);
-
-  auto *export_png = new QPushButton("Export PNG", toolbar_);
-  connect(export_png, &QPushButton::clicked, this, &TopologyPanel::OnExportPng);
-  toolbar_->addWidget(export_png);
-
-  toolbar_->addSeparator();
-
-  auto *gen_ploy = new QPushButton("Generate .poly", toolbar_);
-  connect(gen_ploy, &QPushButton::clicked, this, &TopologyPanel::OnGeneratePloy);
-  toolbar_->addWidget(gen_ploy);
 }
 
 void TopologyPanel::SetupScene() {
@@ -1074,6 +1073,7 @@ void TopologyPanel::LoadFromFile(const QString &ploy_file_path) {
 
   current_file_ = ploy_file_path;
   BuildGraphFromFile(ploy_file_path);
+  QTimer::singleShot(0, this, &TopologyPanel::FitReadable);
 
   // Start watching the new file for live reload
   if (!ploy_file_path.isEmpty()) {
@@ -1444,8 +1444,10 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
   parser.ParseModule();
   auto module = parser.TakeModule();
 
-  if (!module) {
+  if (!module || diagnostics.HasErrors()) {
     diagnostics_output_->appendPlainText("Parse failed for " + path);
+    for (const auto &diagnostic : diagnostics.All())
+      diagnostics_output_->appendPlainText(QString::fromStdString(frontends::Diagnostics::Format(diagnostic)));
     return;
   }
 
@@ -1474,6 +1476,11 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
   }
 
   const auto &graph = analyzer.Graph();
+  topo::TopologyValidator validator;
+  validator.Validate(graph);
+  for (const auto &diagnostic : validator.Diagnostics())
+    if (diagnostic.severity != topo::ValidationDiagnostic::Severity::kInfo)
+      diagnostics_output_->appendPlainText(QString::fromStdString(diagnostic.message));
 
   // Create node items
   for (const auto &node : graph.Nodes()) {
@@ -1494,17 +1501,26 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
     case topo::TopologyNode::Kind::kMapFunc:
       kind_str = "map";
       break;
-    case topo::TopologyNode::Kind::kExternalCall:
-      kind_str = "ext";
-      break;
+    case topo::TopologyNode::Kind::kExternalCall: kind_str = "function call"; break;
+    case topo::TopologyNode::Kind::kBoundary: kind_str = "boundary"; break;
+    case topo::TopologyNode::Kind::kValue: kind_str = "value"; break;
+    case topo::TopologyNode::Kind::kOperation: kind_str = "operation"; break;
+    case topo::TopologyNode::Kind::kConversion: kind_str = "conversion"; break;
     }
 
-    auto *item = new TopoNodeItem(node.id, QString::fromStdString(node.name),
+    auto *item = new TopoNodeItem(node.id, QString::fromStdString(node.display_name.empty() ? node.name : node.display_name),
                                   QString::fromStdString(node.language), kind_str);
 
     // Store source location for debug mapping
-    item->SetSourceLocation(QString::fromStdString(node.loc.file), static_cast<int>(node.loc.line));
+    const auto &location = node.definition_loc.file.empty() ? node.loc : node.definition_loc;
+    item->SetSourceLocation(QString::fromStdString(location.file), static_cast<int>(location.line));
+    item->SetDescription(QString::fromStdString(node.description) + "\nCall/source: " +
+                         QString::fromStdString(node.loc.file) + ":" + QString::number(node.loc.line));
 
+    if (node.language != "poly") {
+      auto symbol = node.display_name.empty() ? node.name : node.display_name;
+      item->SetDefinitionTarget(QString::fromStdString(symbol), path);
+    }
     // Add ports
     for (const auto &port : node.inputs) {
       item->AddInputPort(port.id, QString::fromStdString(port.name),
@@ -1522,9 +1538,7 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
     node_context_[node.id] = node.context_node_id;
   }
 
-  // Initial layout (grid as starting positions, then force if selected)
-  LayoutNodes();
-
+  // Create edges before layout: layering must use the actual connections.
   // Create edge items
   for (const auto &edge : graph.Edges()) {
     auto src_it = node_items_.find(edge.source_node_id);
@@ -1557,6 +1571,22 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
     auto *edge_item = new TopoEdgeItem(edge.id, start, end, status);
     edge_item->SetEndpointIds(edge.source_node_id, edge.source_port_id, edge.target_node_id,
                               edge.target_port_id);
+    QString source_type = "unresolved", target_type = "unresolved", source_name, target_name;
+    if (auto *port = src_it->second->OutputPort(edge.source_port_id)) {
+      source_type = port->TypeName(); source_name = port->PortName();
+    }
+    if (auto *port = tgt_it->second->InputPort(edge.target_port_id)) {
+      target_type = port->TypeName(); target_name = port->PortName();
+    }
+    QString label = source_type == target_type ? source_type : source_type + " → " + target_type;
+    if (status == "unknown") label += " ?";
+    if (!edge.value_label.empty()) label = QString::fromStdString(edge.value_label) + " : " + label;
+    if (edge.relation == "order") label = "stage order";
+    if (edge.relation == "binding") label = "binding";
+    const auto detail = "Value: " + QString::fromStdString(edge.value_label.empty() ? "expression result" : edge.value_label) + "\n" + src_it->second->NodeName() + "." + source_name + " : " + source_type +
+        "\n→ " + tgt_it->second->NodeName() + "." + target_name + " : " + target_type +
+        "\n" + status + "\n" + QString::fromStdString(edge.conversion_note);
+    edge_item->SetFlowLabel(label, detail);
     scene_->addItem(edge_item);
     edge_items_.push_back(edge_item);
     edge_origin_[edge.id] = static_cast<int>(edge.origin);
@@ -1587,16 +1617,21 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
 
   // Apply view mode filter (hide/show nodes and edges based on selected mode)
   ApplyViewModeFilter();
+  LayoutNodes();
+  OnZoomFit();
 
   // Re-watch the file (QFileSystemWatcher may drop paths after changes)
   if (!current_file_.isEmpty() && !file_watcher_->files().contains(current_file_)) {
     file_watcher_->addPath(current_file_);
   }
 
-  status_label_->setText(QString("Topology: %1 nodes, %2 edges — %3")
-                             .arg(graph.NodeCount())
-                             .arg(graph.EdgeCount())
-                             .arg(path));
+  const auto cards = std::count_if(node_items_.begin(), node_items_.end(),
+                                  [](const auto &entry) { return entry.second->isVisible(); });
+  const auto wires = std::count_if(edge_items_.begin(), edge_items_.end(),
+                                  [](const auto *edge) { return edge->isVisible(); });
+  status_label_->setText(QString("%1 cards · %2 connections · %3")
+                             .arg(cards).arg(wires).arg(QFileInfo(path).fileName()));
+  status_label_->setToolTip(path);
 }
 
 // ============================================================================
@@ -1702,34 +1737,57 @@ void LayoutHierarchical(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
     }
   }
 
-  // Longest-path layering on the topological order.
+  // Ignore feedback arcs when assigning layers. They are still rendered as
+  // back edges, so recursive calls cannot send every node to a later column.
+  std::unordered_map<uint64_t, size_t> rank;
+  for (size_t i = 0; i < topo.size(); ++i) rank[topo[i]] = i;
   std::unordered_map<uint64_t, int> layer;
-  for (const auto &[id, _] : nodes)
-    layer[id] = 0;
-  for (uint64_t id : topo) {
-    for (uint64_t s : adj.out_edges[id]) {
-      if (layer[s] < layer[id] + 1)
-        layer[s] = layer[id] + 1;
-    }
-  }
-
-  // Bucket nodes by layer (stable order within a bucket).
+  for (const auto &[id, _] : nodes) layer[id] = 0;
+  for (uint64_t id : topo)
+    for (uint64_t successor : adj.out_edges[id])
+      if (rank[successor] > rank[id]) layer[successor] = std::max(layer[successor], layer[id] + 1);
   std::map<int, std::vector<uint64_t>> buckets;
-  for (uint64_t id : StableNodeOrder(nodes)) {
-    buckets[layer[id]].push_back(id);
-  }
+  for (uint64_t id : StableNodeOrder(nodes)) buckets[layer[id]].push_back(id);
 
-  // Place buckets left-to-right; each column is centered vertically.
-  for (const auto &[lvl, ids] : buckets) {
-    qreal x = static_cast<qreal>(lvl) * layer_spacing_x;
-    qreal total_h = static_cast<qreal>(ids.size() - 1) * node_spacing_y;
-    qreal y0 = -total_h / 2.0;
-    for (size_t i = 0; i < ids.size(); ++i) {
-      auto it = nodes.find(ids[i]);
-      if (it != nodes.end()) {
-        it->second->setPos(x, y0 + static_cast<qreal>(i) * node_spacing_y);
-      }
+  // Alternating barycentre sweeps reduce crossings while stable tie-breaking
+  // preserves the same layout on reload.
+  std::unordered_map<uint64_t, double> order;
+  auto update_order = [&] {
+    for (const auto &[_, ids] : buckets)
+      for (size_t i = 0; i < ids.size(); ++i) order[ids[i]] = static_cast<double>(i);
+  };
+  update_order();
+  for (int sweep = 0; sweep < 6; ++sweep) {
+    auto reorder = [&](auto &ids, bool forward) {
+      auto score = [&](uint64_t id) {
+        const auto &neighbours = forward ? adj.in_edges[id] : adj.out_edges[id];
+        double sum = 0; size_t count = 0;
+        for (auto neighbour : neighbours)
+          if ((forward && layer[neighbour] < layer[id]) || (!forward && layer[neighbour] > layer[id])) {
+            sum += order[neighbour]; ++count;
+          }
+        return count ? sum / count : order[id];
+      };
+      std::stable_sort(ids.begin(), ids.end(), [&](auto a, auto b) { return score(a) < score(b); });
+      update_order();
+    };
+    if (sweep % 2 == 0) for (auto &[_, ids] : buckets) reorder(ids, true);
+    else for (auto it = buckets.rbegin(); it != buckets.rend(); ++it) reorder(it->second, false);
+  }
+  qreal x = 0;
+  for (const auto &[_, ids] : buckets) {
+    qreal width = 0, height = 0;
+    const qreal gap = std::max<qreal>(48, node_spacing_y * 0.3);
+    for (auto id : ids) {
+      width = std::max(width, nodes[id]->rect().width());
+      height += nodes[id]->rect().height() + gap;
     }
+    qreal y = -height / 2;
+    for (auto id : ids) {
+      nodes[id]->setPos(x, y);
+      y += nodes[id]->rect().height() + gap;
+    }
+    x += width + std::max<qreal>(170, layer_spacing_x - kNodeWidth);
   }
 }
 
@@ -1889,7 +1947,13 @@ void TopologyPanel::LayoutNodes() {
 
   switch (layout_mode_) {
   case LayoutMode::kHierarchical:
-    LayoutHierarchical(node_items_, edge_items_, kNodeWidth + 120.0, kNodeWidth * 0.65);
+    {
+      auto visible_nodes = node_items_;
+      for (auto it = visible_nodes.begin(); it != visible_nodes.end(); ) {
+        if (!it->second->isVisible()) it = visible_nodes.erase(it); else ++it;
+      }
+      LayoutHierarchical(visible_nodes, edge_items_, kNodeWidth + 180.0, kNodeWidth * 0.65);
+    }
     RefreshEdgePositions();
     break;
 
@@ -2069,10 +2133,35 @@ void TopologyPanel::RefreshEdgePositions() {
     QPointF start = src_it->second->OutputPortPos(edge->SourcePortId());
     QPointF end = tgt_it->second->InputPortPos(edge->TargetPortId());
     edge->UpdateEndpoints(start, end);
+    if (!edge->isVisible() || end.x() <= start.x()) continue;
+
+    // A dependency can skip several columns. Give it an outer lane when a
+    // direct curve would pass through an unrelated card, which otherwise
+    // makes the wire look like an input to that intermediate function.
+    bool obstructed = false;
+    QRectF corridor = src_it->second->sceneBoundingRect().united(tgt_it->second->sceneBoundingRect());
+    for (const auto &[node_id, node] : node_items_) {
+      if (!node->isVisible() || node_id == edge->SourceNodeId() ||
+          node_id == edge->TargetNodeId()) continue;
+      const auto bounds = node->sceneBoundingRect().adjusted(-14, -14, 14, 14);
+      if (bounds.right() <= start.x() || bounds.left() >= end.x()) continue;
+      corridor = corridor.united(bounds);
+      if (edge->shape().intersects(bounds)) obstructed = true;
+    }
+    if (obstructed) {
+      const qreal padding = 42 + 18 * (edge->EdgeId() % 4);
+      const qreal top = corridor.top() - padding;
+      const qreal bottom = corridor.bottom() + padding;
+      const qreal above = std::abs(start.y() - top) + std::abs(end.y() - top);
+      const qreal below = std::abs(start.y() - bottom) + std::abs(end.y() - bottom);
+      edge->RouteVia(above <= below ? top : bottom);
+    }
   }
 }
 
 void TopologyPanel::UpdateDetailsPanel(uint64_t node_id) {
+  RevealInspector();
+  if (inspector_tabs_) inspector_tabs_->setCurrentIndex(0);
   details_tree_->clear();
   auto it = node_items_.find(node_id);
   if (it == node_items_.end())
@@ -2084,6 +2173,7 @@ void TopologyPanel::UpdateDetailsPanel(uint64_t node_id) {
   new QTreeWidgetItem(root, {"Name", item->NodeName()});
   new QTreeWidgetItem(root, {"Language", item->Language()});
   new QTreeWidgetItem(root, {"Kind", item->Kind()});
+  new QTreeWidgetItem(root, {"Details", item->Description()});
   new QTreeWidgetItem(root,
                       {"Source", item->SourceFile() + ":" + QString::number(item->SourceLine())});
   root->setExpanded(true);
@@ -2112,6 +2202,17 @@ void TopologyPanel::UpdateDetailsPanel(uint64_t node_id) {
 // Slots
 // ============================================================================
 
+void TopologyPanel::UpdateEdgeDetails(TopoEdgeItem *edge) {
+  RevealInspector();
+  if (inspector_tabs_) inspector_tabs_->setCurrentIndex(0);
+  details_tree_->clear();
+  auto *root = new QTreeWidgetItem(details_tree_, {"VALUE CONNECTION", edge->FlowLabel()});
+  new QTreeWidgetItem(root, {"Status", edge->Status()});
+  new QTreeWidgetItem(root, {"From → to", edge->FlowDetail()});
+  new QTreeWidgetItem(root, {"Meaning", "Static value dependency; runtime values are not recorded"});
+  details_tree_->expandAll();
+}
+
 void TopologyPanel::OnRefresh() {
   if (!current_file_.isEmpty()) {
     BuildGraphFromFile(current_file_);
@@ -2119,6 +2220,8 @@ void TopologyPanel::OnRefresh() {
 }
 
 void TopologyPanel::OnValidate() {
+  RevealInspector();
+  if (inspector_tabs_) inspector_tabs_->setCurrentIndex(1);
   if (current_file_.isEmpty())
     return;
 
@@ -2322,6 +2425,16 @@ void TopologyPanel::OnGeneratePloy() {
   auto &graph = analyzer.MutableGraph();
   graph.source_file = current_file_.toStdString();
 
+  if (std::any_of(graph.Nodes().begin(), graph.Nodes().end(), [](const auto &node) {
+        return node.kind == topo::TopologyNode::Kind::kBoundary ||
+               node.kind == topo::TopologyNode::Kind::kValue ||
+               node.kind == topo::TopologyNode::Kind::kOperation ||
+               node.kind == topo::TopologyNode::Kind::kConversion;
+      })) {
+    diagnostics_output_->appendPlainText(
+        "[Generate] This is an analyzed value-flow graph. It does not preserve enough control-flow information to regenerate source. Edit the original Poly file.");
+    return;
+  }
   // Generate .poly source
   std::string generated = topo::GeneratePloySrc(graph);
 
@@ -2370,16 +2483,62 @@ void TopologyPanel::OnGeneratePloy() {
   emit OpenFileRequested(gen_path_q);
 }
 
+void TopologyPanel::resizeEvent(QResizeEvent *event) {
+  QWidget::resizeEvent(event);
+  if (!splitter_) return;
+  const auto orientation = width() < 1000 ? Qt::Vertical : Qt::Horizontal;
+  if (splitter_->orientation() != orientation) {
+    splitter_->setOrientation(orientation);
+    splitter_->setSizes(orientation == Qt::Horizontal ? QList<int>{std::max(300, width() - 280), 280}
+                                                    : QList<int>{std::max(250, height() - 210), 210});
+  }
+}
+
+void TopologyPanel::RevealInspector() {
+  auto *inspector = splitter_->widget(1);
+  if (inspector->isHidden()) {
+    inspector->show();
+    splitter_->setSizes(splitter_->orientation() == Qt::Horizontal
+                            ? QList<int>{std::max(300, width() - 300), 300}
+                            : QList<int>{std::max(250, height() - 220), 220});
+  }
+}
+
+void TopologyPanel::FitReadable() {
+  OnZoomFit();
+  if (view_->transform().m11() < 0.85) {
+    view_->resetTransform();
+    view_->scale(0.85, 0.85);
+    // Start at the producers. Explicit Fit remains an overview operation.
+    QRectF first;
+    for (const auto &[id, node] : node_items_)
+      if (node->isVisible() && (first.isNull() || node->sceneBoundingRect().left() < first.left()))
+        first = node->sceneBoundingRect();
+    if (!first.isNull()) view_->centerOn(first.left() + view_->viewport()->width() / 1.7,
+                                        scene_->sceneRect().center().y());
+  }
+}
+
 void TopologyPanel::OnZoomIn() {
-  view_->scale(1.2, 1.2);
+  if (view_->transform().m11() < 3.0) view_->scale(1.2, 1.2);
 }
 
 void TopologyPanel::OnZoomOut() {
-  view_->scale(1.0 / 1.2, 1.0 / 1.2);
+  if (view_->transform().m11() > 0.15) view_->scale(1.0 / 1.2, 1.0 / 1.2);
 }
 
 void TopologyPanel::OnZoomFit() {
-  view_->fitInView(scene_->sceneRect(), Qt::KeepAspectRatio);
+  QRectF bounds;
+  for (const auto &[id, node] : node_items_)
+    if (node->isVisible()) bounds = bounds.isNull() ? node->sceneBoundingRect() : bounds.united(node->sceneBoundingRect());
+  for (const auto *edge : edge_items_)
+    if (edge->isVisible()) bounds = bounds.isNull() ? edge->sceneBoundingRect() : bounds.united(edge->sceneBoundingRect());
+  if (!bounds.isNull()) {
+    bounds.adjust(-65, -65, 65, 65);
+    scene_->setSceneRect(bounds);
+    view_->fitInView(bounds, Qt::KeepAspectRatio);
+    if (view_->transform().m11() > 1.1) view_->resetTransform();
+  }
 }
 
 void TopologyPanel::OnNodeSelected() {
@@ -2388,6 +2547,7 @@ void TopologyPanel::OnNodeSelected() {
     return;
 
   for (auto *item : items) {
+    if (auto *edge = dynamic_cast<TopoEdgeItem *>(item)) { UpdateEdgeDetails(edge); return; }
     auto *node_item = dynamic_cast<TopoNodeItem *>(item);
     if (node_item) {
       UpdateDetailsPanel(node_item->NodeId());
@@ -2420,6 +2580,8 @@ void TopologyPanel::OnViewModeChanged(int index) {
     break;
   }
   ApplyViewModeFilter();
+  LayoutNodes();
+  OnZoomFit();
   ApplyGrouping();
 }
 
@@ -2571,6 +2733,8 @@ void TopologyPanel::OnBatchDelete() {
     bool should_remove = edge->isSelected() || deleted_node_ids.count(edge->SourceNodeId()) ||
                          deleted_node_ids.count(edge->TargetNodeId());
     if (should_remove) {
+      edge_context_.erase(edge->EdgeId());
+      edge_origin_.erase(edge->EdgeId());
       scene_->removeItem(edge);
       delete edge;
       edge_it = edge_items_.erase(edge_it);
@@ -2581,14 +2745,23 @@ void TopologyPanel::OnBatchDelete() {
   }
 
   // Remove selected nodes
-  for (auto *item : selected) {
-    if (auto *node = dynamic_cast<TopoNodeItem *>(item)) {
-      node_items_.erase(node->NodeId());
-      scene_->removeItem(node);
-      delete node;
-      ++removed_nodes;
-    }
+  // The original selection may contain edges already deleted above.
+  // Resolve the saved IDs rather than inspecting those dangling pointers.
+  for (auto node_id : deleted_node_ids) {
+    auto it = node_items_.find(node_id);
+    if (it == node_items_.end()) continue;
+    auto *node = it->second;
+    node_items_.erase(it);
+    node_origin_.erase(node_id);
+    node_kind_.erase(node_id);
+    node_context_.erase(node_id);
+    expanded_nodes_.erase(node_id);
+    if (execution_highlight_id_ == node_id) execution_highlight_id_ = 0;
+    scene_->removeItem(node);
+    delete node;
+    ++removed_nodes;
   }
+  details_tree_->clear();
 
   diagnostics_output_->appendPlainText(
       QString("[Batch] Deleted %1 node(s) and %2 edge(s).").arg(removed_nodes).arg(removed_edges));
@@ -2786,7 +2959,7 @@ void TopologyPanel::ApplyViewModeFilter() {
     // (context_node_id != 0) are only shown in their dedicated
     // drill-down sub-window, never on the main canvas.
     auto ectx_it = edge_context_.find(edge_item->EdgeId());
-    if (visible && ectx_it != edge_context_.end() && ectx_it->second != 0) {
+    if (visible && view_mode_ != ViewMode::kCall && ectx_it != edge_context_.end() && ectx_it->second != 0) {
       visible = false;
     }
     edge_item->setVisible(visible);
@@ -2848,7 +3021,7 @@ void TopologyPanel::ApplyViewModeFilter() {
     // body (context_node_id != 0) are only shown in their dedicated
     // drill-down sub-window, never on the main canvas.
     auto nctx_it = node_context_.find(id);
-    if (visible && nctx_it != node_context_.end() && nctx_it->second != 0) {
+    if (visible && view_mode_ != ViewMode::kCall && nctx_it != node_context_.end() && nctx_it->second != 0) {
       visible = false;
     }
 
@@ -2930,6 +3103,7 @@ void TopologyPanel::OpenDrillDownWindow(uint64_t node_id) {
 
   // Forward navigation signals to the main panel so editors can navigate
   connect(win, &DrillDownWindow::NodeDoubleClicked, this, &TopologyPanel::NodeDoubleClicked);
+  connect(win, &DrillDownWindow::DefinitionRequested, this, &TopologyPanel::DefinitionRequested);
 
   win->show();
 
@@ -3117,13 +3291,15 @@ void DrillDownWindow::SetupUI(const QString &container_name) {
   auto *right_layout = new QVBoxLayout(right_panel);
   right_layout->setContentsMargins(4, 4, 4, 4);
 
-  auto *details_label = new QLabel("Node Details", right_panel);
+  auto *details_label = new QLabel("FLOW INSPECTOR", right_panel);
   details_label->setStyleSheet("font-weight: bold; padding: 4px;");
   right_layout->addWidget(details_label);
 
   details_tree_ = new QTreeWidget(right_panel);
   details_tree_->setHeaderLabels({"Property", "Value"});
   details_tree_->header()->setStretchLastSection(true);
+  details_tree_->setWordWrap(true);
+  details_tree_->setColumnWidth(0, 105);
   right_layout->addWidget(details_tree_);
 
   auto *diag_label = new QLabel("Diagnostics", right_panel);
@@ -3133,12 +3309,16 @@ void DrillDownWindow::SetupUI(const QString &container_name) {
   diagnostics_output_ = new QPlainTextEdit(right_panel);
   diagnostics_output_->setReadOnly(true);
   diagnostics_output_->setMaximumBlockCount(200);
+  diagnostics_output_->setMaximumHeight(140);
   right_layout->addWidget(diagnostics_output_);
 
   splitter_->addWidget(right_panel);
-  splitter_->setStretchFactor(0, 3);
+  splitter_->setSizes({840, 245});
+  splitter_->setChildrenCollapsible(true);
+  right_panel->setMinimumWidth(160);
+  splitter_->setStretchFactor(0, 4);
   splitter_->setStretchFactor(1, 1);
-  layout->addWidget(splitter_);
+  layout->addWidget(splitter_, 1);
 
   // Status label
   status_label_ = new QLabel(this);
@@ -3201,6 +3381,8 @@ void DrillDownWindow::PopulateScene() {
     const TopoNodeItem *src = it->second;
     auto *item = new TopoNodeItem(src->NodeId(), src->NodeName(), src->Language(), src->Kind());
     item->SetSourceLocation(src->SourceFile(), src->SourceLine());
+    item->SetDefinitionTarget(src->DefinitionSymbol(), src->DefinitionContext());
+    item->SetDescription(src->Description());
 
     // Re-create ports so edge endpoints can resolve positions
     for (const auto *port : src->InputPorts()) {
@@ -3241,6 +3423,7 @@ void DrillDownWindow::PopulateScene() {
     auto *edge_item = new TopoEdgeItem(src_edge->EdgeId(), start, end, src_edge->Status());
     edge_item->SetEndpointIds(src_edge->SourceNodeId(), src_edge->SourcePortId(),
                               src_edge->TargetNodeId(), src_edge->TargetPortId());
+    edge_item->SetFlowLabel(src_edge->FlowLabel(), src_edge->FlowDetail());
     scene_->addItem(edge_item);
     edge_items_.push_back(edge_item);
   }
@@ -3270,7 +3453,13 @@ void DrillDownWindow::LayoutDrillDownNodes() {
   }
   switch (layout_mode_) {
   case LayoutMode::kHierarchical:
-    LayoutHierarchical(node_items_, edge_items_, kNodeWidth + 120.0, kNodeWidth * 0.65);
+    {
+      auto visible_nodes = node_items_;
+      for (auto it = visible_nodes.begin(); it != visible_nodes.end(); ) {
+        if (!it->second->isVisible()) it = visible_nodes.erase(it); else ++it;
+      }
+      LayoutHierarchical(visible_nodes, edge_items_, kNodeWidth + 180.0, kNodeWidth * 0.65);
+    }
     RefreshEdgePositions();
     break;
   case LayoutMode::kForceDirected: {
@@ -3468,6 +3657,7 @@ void DrillDownWindow::UpdateDetailsPanel(uint64_t node_id) {
   new QTreeWidgetItem(root, {"Name", item->NodeName()});
   new QTreeWidgetItem(root, {"Language", item->Language()});
   new QTreeWidgetItem(root, {"Kind", item->Kind()});
+  new QTreeWidgetItem(root, {"Details", item->Description()});
   new QTreeWidgetItem(root,
                       {"Source", item->SourceFile() + ":" + QString::number(item->SourceLine())});
   root->setExpanded(true);
@@ -3552,6 +3742,7 @@ void DrillDownWindow::OpenDrillDownWindow(uint64_t node_id) {
 
   // Forward navigation signals up the chain
   connect(win, &DrillDownWindow::NodeDoubleClicked, this, &DrillDownWindow::NodeDoubleClicked);
+  connect(win, &DrillDownWindow::DefinitionRequested, this, &DrillDownWindow::DefinitionRequested);
 
   win->show();
 

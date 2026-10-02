@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QMainWindow>
+#include <QLabel>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -187,11 +188,13 @@ std::shared_ptr<lsp::LspSession> IdeLspBridge::EnsureSession(const QString &lang
   if (!transport->Start(command, args, env) || start_failed) {
     if (auto *parent_widget = qobject_cast<QWidget *>(parent())) {
       if (auto *mw = qobject_cast<QMainWindow *>(parent_widget->window())) {
-        if (mw->statusBar()) {
-          mw->statusBar()->showMessage(
-              QStringLiteral("[LSP] %1 — server disabled for this session.")
-                  .arg(start_error.isEmpty() ? command : start_error),
-              8000);
+        const auto message = QStringLiteral("[LSP] %1 — server disabled for this session.")
+                                 .arg(start_error.isEmpty() ? command : start_error);
+        if (auto *label = mw->findChild<QLabel *>("workspaceStatusMessage")) {
+          label->setText(message);
+          label->setToolTip(message);
+        } else if (mw->statusBar()) {
+          mw->statusBar()->showMessage(message, 8000);
         }
       }
     }

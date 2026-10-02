@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "frontends/common/include/diagnostics.h"
+#include "tools/ui/common/cross_language/cross_language_navigator.h"
 #include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/lexer_base.h"
 
@@ -130,6 +131,7 @@ public:
   void IndexWorkspaceFile(const std::string &path, const std::string &source,
                           const std::string &language);
   void ClearWorkspaceIndex();
+  void ForgetWorkspaceBuffer(const std::string &path);
 
   // ── Go-to-definition support ─────────────────────────────────────────
   // Resolve a symbol to its definition location across the workspace.
@@ -141,6 +143,13 @@ public:
   };
   DefinitionLocation FindDefinition(const std::string &symbol, const std::string &current_file,
                                     const std::string &source, const std::string &language) const;
+
+  // Source-backed functions used by hover, inline preview, and definition.
+  // Multiple matches are deliberately returned; the UI must let the user pick.
+  std::vector<cross_language::FunctionDocumentation> InspectSymbol(
+      const std::string &symbol, const std::string &current_file,
+      const std::string &source, const std::string &language,
+      std::size_t source_offset) const;
 
 private:
   // Internal helpers
@@ -162,6 +171,7 @@ private:
     std::string detail;
   };
   mutable std::mutex index_mutex_;
+  std::unordered_map<std::string, std::pair<std::string, std::string>> workspace_sources_;
   std::unordered_map<std::string, std::vector<IndexedSymbol>> workspace_index_;
 };
 

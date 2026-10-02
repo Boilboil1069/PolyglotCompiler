@@ -2,96 +2,166 @@
   "name": "Polyglot Dark",
   "id": "polyglot.dark",
   "type": "dark",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Polyglot Compiler Project",
-  "description": "Default dark theme for polyui, mirrors the classic VS Code Dark+ palette.",
+  "description": "Modern slate workspace with clear surfaces, calm status bar, and blue accents.",
   "colors": {
-    "workbench.background": "#1e1e1e",
-    "workbench.surface": "#2d2d2d",
-    "workbench.surfaceAlt": "#252526",
-    "workbench.border": "#454545",
-
-    "foreground": "#cccccc",
-    "descriptionForeground": "#969696",
-    "disabledForeground": "#666666",
-
-    "focusBorder": "#0e639c",
-    "selectionBackground": "#094771",
+    "workbench.background": "#111923",
+    "workbench.surface": "#1b2735",
+    "workbench.surfaceAlt": "#16212e",
+    "workbench.border": "#314257",
+    "foreground": "#dce6f2",
+    "descriptionForeground": "#97a9be",
+    "disabledForeground": "#68788d",
+    "focusBorder": "#3b82bf",
+    "selectionBackground": "#274864",
     "selectionForeground": "#ffffff",
-
     "errorForeground": "#f44747",
     "editorWarning.foreground": "#cca700",
     "testing.iconPassed": "#89d185",
     "editorInfo.foreground": "#3794ff",
-
-    "editor.background": "#1e1e1e",
-    "editor.foreground": "#d4d4d4",
-    "editor.selectionBackground": "#264f78",
-    "editor.lineHighlightBackground": "#2a2d2e",
-    "editorLineNumber.foreground": "#858585",
-    "editorGutter.background": "#1e1e1e",
-
-    "tab.inactiveBackground": "#2d2d2d",
-    "tab.activeBackground": "#1e1e1e",
-    "tab.activeBorder": "#007acc",
-    "tab.hoverBackground": "#383838",
-    "tab.inactiveForeground": "#969696",
+    "editor.background": "#111923",
+    "editor.foreground": "#dce6f2",
+    "editor.selectionBackground": "#274864",
+    "editor.lineHighlightBackground": "#1a2a3b",
+    "editorLineNumber.foreground": "#6f849d",
+    "editorGutter.background": "#111923",
+    "tab.inactiveBackground": "#1b2735",
+    "tab.activeBackground": "#111923",
+    "tab.activeBorder": "#5aa9e6",
+    "tab.hoverBackground": "#293b50",
+    "tab.inactiveForeground": "#97a9be",
     "tab.activeForeground": "#ffffff",
-
-    "statusBar.background": "#007acc",
-    "statusBar.foreground": "#ffffff",
-
-    "menu.background": "#252526",
-    "menu.foreground": "#cccccc",
-    "menu.selectionBackground": "#094771",
-    "menu.separatorBackground": "#454545",
-
-    "button.secondaryBackground": "#3c3c3c",
-    "button.secondaryForeground": "#cccccc",
-    "button.secondaryHoverBackground": "#505050",
-    "button.background": "#0e639c",
+    "statusBar.background": "#152334",
+    "statusBar.foreground": "#b6c9df",
+    "menu.background": "#16212e",
+    "menu.foreground": "#dce6f2",
+    "menu.selectionBackground": "#274864",
+    "menu.separatorBackground": "#314257",
+    "button.secondaryBackground": "#223247",
+    "button.secondaryForeground": "#dce6f2",
+    "button.secondaryHoverBackground": "#2c425c",
+    "button.background": "#3b82bf",
     "button.foreground": "#ffffff",
     "button.hoverBackground": "#1177bb",
-
-    "input.background": "#3c3c3c",
-    "input.foreground": "#cccccc",
-    "input.border": "#555555",
+    "input.background": "#223247",
+    "input.foreground": "#dce6f2",
+    "input.border": "#3d536e",
     "input.placeholderForeground": "#888888",
-
-    "scrollbar.shadow": "#1e1e1e",
-    "scrollbarSlider.background": "#424242",
-    "scrollbarSlider.hoverBackground": "#4f4f4f",
-
-    "progressBar.background": "#1e1e1e",
-    "progressBar.foreground": "#0e639c",
-
+    "scrollbar.shadow": "#111923",
+    "scrollbarSlider.background": "#34495f",
+    "scrollbarSlider.hoverBackground": "#4b6782",
+    "progressBar.background": "#111923",
+    "progressBar.foreground": "#3b82bf",
     "panel.border": "#80808059",
-    "sideBar.background": "#252526",
-    "topology.node.background": "#2d2d30",
+    "sideBar.background": "#16212e",
+    "topology.node.background": "#1b2735",
     "topology.edge.valid": "#4ec9b0",
     "topology.edge.incompatible": "#f48771"
   },
   "tokenColors": [
-    { "name": "Comment",  "scope": ["comment", "punctuation.definition.comment"],
-      "settings": { "foreground": "#6a9955", "fontStyle": "italic" } },
-    { "name": "String",   "scope": ["string.quoted", "string.single", "string.double"],
-      "settings": { "foreground": "#ce9178" } },
-    { "name": "Number",   "scope": ["constant.numeric"],
-      "settings": { "foreground": "#b5cea8" } },
-    { "name": "Keyword",  "scope": ["keyword.control", "keyword.control.poly", "storage.modifier"],
-      "settings": { "foreground": "#c586c0", "fontStyle": "bold" } },
-    { "name": "Storage",  "scope": ["storage.type"],
-      "settings": { "foreground": "#569cd6" } },
-    { "name": "Function", "scope": ["entity.name.function", "entity.name.function.cpp",
-                                    "entity.name.function.python", "entity.name.function.poly"],
-      "settings": { "foreground": "#dcdcaa" } },
-    { "name": "Type",     "scope": ["entity.name.type", "support.type"],
-      "settings": { "foreground": "#4ec9b0" } },
-    { "name": "Variable", "scope": ["variable", "variable.other"],
-      "settings": { "foreground": "#9cdcfe" } },
-    { "name": "Constant", "scope": ["constant.language", "constant.other"],
-      "settings": { "foreground": "#569cd6" } },
-    { "name": "Operator", "scope": ["keyword.operator"],
-      "settings": { "foreground": "#d4d4d4" } }
+    {
+      "name": "Comment",
+      "scope": [
+        "comment",
+        "punctuation.definition.comment"
+      ],
+      "settings": {
+        "foreground": "#6a9955",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "String",
+      "scope": [
+        "string.quoted",
+        "string.single",
+        "string.double"
+      ],
+      "settings": {
+        "foreground": "#ce9178"
+      }
+    },
+    {
+      "name": "Number",
+      "scope": [
+        "constant.numeric"
+      ],
+      "settings": {
+        "foreground": "#b5cea8"
+      }
+    },
+    {
+      "name": "Keyword",
+      "scope": [
+        "keyword.control",
+        "keyword.control.poly",
+        "storage.modifier"
+      ],
+      "settings": {
+        "foreground": "#c586c0",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Storage",
+      "scope": [
+        "storage.type"
+      ],
+      "settings": {
+        "foreground": "#569cd6"
+      }
+    },
+    {
+      "name": "Function",
+      "scope": [
+        "entity.name.function",
+        "entity.name.function.cpp",
+        "entity.name.function.python",
+        "entity.name.function.poly"
+      ],
+      "settings": {
+        "foreground": "#dcdcaa"
+      }
+    },
+    {
+      "name": "Type",
+      "scope": [
+        "entity.name.type",
+        "support.type"
+      ],
+      "settings": {
+        "foreground": "#4ec9b0"
+      }
+    },
+    {
+      "name": "Variable",
+      "scope": [
+        "variable",
+        "variable.other"
+      ],
+      "settings": {
+        "foreground": "#9cdcfe"
+      }
+    },
+    {
+      "name": "Constant",
+      "scope": [
+        "constant.language",
+        "constant.other"
+      ],
+      "settings": {
+        "foreground": "#569cd6"
+      }
+    },
+    {
+      "name": "Operator",
+      "scope": [
+        "keyword.operator"
+      ],
+      "settings": {
+        "foreground": "#d4d4d4"
+      }
+    }
   ]
 }

@@ -1,0 +1,16 @@
+// Order quantities move between independent, documented language modules.
+// Place the cursor on a CALL target to read its original docs and source.
+IMPORT cpp::pricing;
+IMPORT rust::discounts;
+IMPORT python::reporting;
+IMPORT go::audit;
+
+FUNC main() -> INT {
+    LET quantity = 6;
+    LET unit_cents = 250;
+    LET gross_cents = CALL(cpp, pricing::subtotal, quantity, unit_cents);
+    LET net_cents = CALL(rust, discounts::apply_discount, gross_cents, 10);
+    LET dollars = CALL(python, reporting::cents_to_dollars, net_cents);
+    LET audit_code = CALL(go, audit::audit_total, net_cents, quantity);
+    RETURN audit_code;
+}

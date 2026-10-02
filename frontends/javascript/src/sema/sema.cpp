@@ -41,6 +41,10 @@ const std::unordered_set<std::string> &GlobalBuiltins() {
       "NaN",
       "Infinity",
       // Functions
+      "print_i64", "print_f64", "print_text", "file_open_ints", "file_open_write",
+      "file_next_int", "file_write_text", "file_write_int", "file_close",
+      "array_new", "array_len", "array_get", "array_set", "array_free",
+      "args_count", "arg_text", "arg_int",
       "eval",
       "isFinite",
       "isNaN",

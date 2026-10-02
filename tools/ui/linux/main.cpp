@@ -46,6 +46,7 @@ int main(int argc, char *argv[]) {
     return HandleValidateThemeCli(opts.validate_theme);
   }
 
+  PrepareWorkspaceCli(app, opts);
   ApplyFallbackDarkPalette(app);
   BootstrapThemeService(app, opts.theme);
 
@@ -63,7 +64,9 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  ApplyWorkspaceCli(&window, opts);
   window.show();
+  if (opts.ui_smoke) return RunWorkspaceSmoke(&window, opts);
   if (opts.headless && !opts.screenshot.isEmpty()) {
     return HandleScreenshotCli(&window, opts.screenshot);
   }

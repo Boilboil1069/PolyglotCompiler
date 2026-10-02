@@ -62,6 +62,7 @@ size_t TopologyValidator::InfoCount() const {
 
 void TopologyValidator::ValidateEdgeTypes(const TopologyGraph &graph) {
   for (const auto &edge : graph.Edges()) {
+    if (edge.relation != "value") continue;
     const auto *src_node = graph.GetNode(edge.source_node_id);
     const auto *tgt_node = graph.GetNode(edge.target_node_id);
     if (!src_node || !tgt_node) {
@@ -107,7 +108,14 @@ void TopologyValidator::ValidateEdgeTypes(const TopologyGraph &graph) {
 
     // Update the edge status (const cast is acceptable here since we only
     // modify the status field for reporting; the graph structure is unchanged)
-    const_cast<TopologyEdge &>(edge).status = status;
+    auto &reported = const_cast<TopologyEdge &>(edge);
+    reported.status = status;
+    if (status == TopologyEdge::Status::kImplicitConvert)
+      reported.conversion_note = "Implicit numeric conversion: " + src_port->type.name + " → " + tgt_port->type.name;
+    else if (status == TopologyEdge::Status::kExplicitConvert)
+      reported.conversion_note = "Explicit conversion required: " + src_port->type.name + " → " + tgt_port->type.name;
+    else if (status == TopologyEdge::Status::kUnknown)
+      reported.conversion_note = "Unresolved signature or value type; conversion cannot be verified";
 
     switch (status) {
     case TopologyEdge::Status::kValid:
@@ -277,7 +285,8 @@ TopologyEdge::Status TopologyValidator::CheckTypeCompatibility(
     const core::Type &source, const core::Type &target, const std::string &source_lang,
     const std::string &target_lang) const {
   // If either type is Any, we cannot verify
-  if (source.kind == core::TypeKind::kAny || target.kind == core::TypeKind::kAny) {
+  if (source.kind == core::TypeKind::kAny || target.kind == core::TypeKind::kAny ||
+      source.kind == core::TypeKind::kUnknown || target.kind == core::TypeKind::kUnknown) {
     return TopologyEdge::Status::kUnknown;
   }
 
@@ -286,6 +295,18 @@ TopologyEdge::Status TopologyValidator::CheckTypeCompatibility(
     return TopologyEdge::Status::kIncompatible;
   }
 
+  // Width/sign differences must remain visible even when both are integers.
+  if (source.kind == target.kind &&
+      (source.kind == core::TypeKind::kInt || source.kind == core::TypeKind::kFloat) &&
+      source.name != target.name) {
+    if (source.bit_width && target.bit_width) {
+      bool safe = source.bit_width <= target.bit_width;
+      if (source.kind == core::TypeKind::kInt && source.is_signed != target.is_signed)
+        safe = !source.is_signed && target.is_signed && source.bit_width < target.bit_width;
+      return safe ? TopologyEdge::Status::kImplicitConvert : TopologyEdge::Status::kExplicitConvert;
+    }
+    return TopologyEdge::Status::kUnknown;
+  }
   // Same kind and same name: directly compatible
   if (source.kind == target.kind) {
     if (source.name == target.name || source.name.empty() || target.name.empty()) {

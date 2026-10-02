@@ -365,6 +365,15 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
     std::vector<MachineBasicBlock> extra_blocks;
 
     for (auto &inst_ptr : bb_ptr->instructions) {
+      if (auto *constant = dynamic_cast<ir::ConstantInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kMov;
+        mi.operands = {Operand::Imm(static_cast<long long>(constant->bits))};
+        mi.def = get_vreg(constant->name);
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
       if (auto *alloca = dynamic_cast<ir::AllocaInstruction *>(inst_ptr.get())) {
         const ir::IRType allocated_type = PointeeType(alloca->type);
         // Keep every alloca as real storage at O0.  A previous scalar

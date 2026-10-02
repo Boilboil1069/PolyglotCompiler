@@ -82,7 +82,7 @@ constexpr std::uint64_t kPageSize       = 0x1000ull;
 // x86_64 and the aarch64 variants are hand-assembled and padded to
 // this value so callers can hard-code "main lives at offset
 // kStartStubSize" when constructing `.text` payloads.
-constexpr std::size_t   kStartStubSize  = 16;
+constexpr std::size_t   kStartStubSize  = 32;
 
 // ---------------------------------------------------------------------------
 // Writer-facing data model

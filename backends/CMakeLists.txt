@@ -38,6 +38,7 @@ target_link_libraries(backend_x86_64 PUBLIC backend_common middle_ir)
 
 add_library(backend_arm64
     arm64/src/asm_printer/emit.cpp
+    arm64/src/asm_printer/native_emit.cpp
     arm64/src/asm_printer/scheduler.cpp
     arm64/src/isel/isel.cpp
     arm64/src/calling_convention.cpp

@@ -1,3 +1,5 @@
+#include "frontends/common/include/native_string_literal.h"
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     lowering.cpp
  * @brief    Go → Polyglot IR lowering
@@ -279,9 +281,9 @@ private:
     builder_.SetInsertPoint(entry);
     locals_.clear();
     for (auto &p : ir_params) {
-      builder_.MakeAlloca(p.second, p.first + ".addr");
-      builder_.MakeStore(p.first + ".addr", p.first);
-      locals_[p.first] = {p.first + ".addr", p.second, false};
+      auto storage = builder_.MakeAlloca(p.second, p.first + ".addr");
+      builder_.MakeStore(storage->name, p.first);
+      locals_[p.first] = {storage->name, p.second, false};
     }
     current_ret_ = ret;
     terminated_ = false;
@@ -781,6 +783,11 @@ private:
     }
     if (auto paren = std::dynamic_pointer_cast<ParenExpr>(e))
       return InferExprType(paren->inner);
+    if (auto unary = std::dynamic_pointer_cast<UnaryExpr>(e)) {
+      if (unary->op == "!") return ir::IRType::I1();
+      if (unary->op == "+" || unary->op == "-" || unary->op == "^")
+        return InferExprType(unary->operand);
+    }
     if (auto composite = std::dynamic_pointer_cast<CompositeLit>(e)) {
       if (composite->type && composite->type->kind == TypeKind::kNamed) {
         auto layout = layouts_.find(composite->type->name);
@@ -813,6 +820,8 @@ private:
     }
     if (auto call = std::dynamic_pointer_cast<CallExpr>(e)) {
       auto id = std::dynamic_pointer_cast<Identifier>(call->fun);
+      if (id) if (const auto *api = frontends::FindNativeBuiltin(id->name))
+        return frontends::NativeIRType(api->result);
       const FuncDecl *target = id ? FindFunction(id->name) : nullptr;
       if (!target) {
         if (auto selector = std::dynamic_pointer_cast<SelectorExpr>(call->fun)) {
@@ -905,7 +914,7 @@ private:
                           "Go complex/imaginary values are not represented by scalar IR lowering");
         return builder_.MakeLiteral(0.0)->name;
       case BasicLit::Kind::kBool:
-        return builder_.MakeLiteral((long long)(lit->value == "true" ? 1 : 0))->name;
+        return lit->value == "true" ? "1" : "0";
       case BasicLit::Kind::kNil:
         return builder_.MakeLiteral((long long)0)->name;
       case BasicLit::Kind::kString:
@@ -963,19 +972,20 @@ private:
       auto v = LowerExpr(u->operand, want);
       using Op = ir::BinaryInstruction::Op;
       if (u->op == "-") {
-        auto z = IsFloat(want) ? builder_.MakeLiteral(0.0)->name
-                               : builder_.MakeLiteral((long long)0)->name;
-        return builder_
-            .MakeBinary(IsFloat(want) ? Op::kFSub : Op::kSub, z, v, NextTemp("neg"))
-            ->name;
+        if (IsFloat(want)) return builder_.MakeFloatNegate(v, want, NextTemp("neg"))->name;
+        auto result = builder_.MakeBinary(Op::kSub, "0", v, NextTemp("neg"));
+        result->type = want;
+        return result->name;
       }
       if (u->op == "!") {
-        auto one = builder_.MakeLiteral((long long)1)->name;
-        return builder_.MakeBinary(Op::kXor, v, one, NextTemp("not"))->name;
+        auto result = builder_.MakeBinary(Op::kXor, v, "1", NextTemp("not"));
+        result->type = ir::IRType::I1();
+        return result->name;
       }
       if (u->op == "^") {
-        auto neg = builder_.MakeLiteral((long long)-1)->name;
-        return builder_.MakeBinary(Op::kXor, v, neg, NextTemp("bnot"))->name;
+        auto result = builder_.MakeBinary(Op::kXor, v, "-1", NextTemp("bnot"));
+        result->type = want;
+        return result->name;
       }
       if (u->op == "+")
         return v;
@@ -987,9 +997,20 @@ private:
       using Op = ir::BinaryInstruction::Op;
       const std::string &o = bin->op;
       if (bin->op == "&&" || bin->op == "||") {
-        diag_.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
-                          "Go short-circuit boolean operators require control-flow lowering");
-        return builder_.MakeLiteral((long long)0)->name;
+        const bool conjunction = bin->op == "&&";
+        auto lhs = LowerExpr(bin->left, ir::IRType::I1());
+        auto *lhs_end = builder_.GetInsertPoint().get();
+        auto rhs_block = builder_.CreateBlock("logic.rhs");
+        auto merge_block = builder_.CreateBlock("logic.merge");
+        builder_.MakeCondBranch(lhs, conjunction ? rhs_block.get() : merge_block.get(),
+                               conjunction ? merge_block.get() : rhs_block.get());
+        builder_.SetInsertPoint(rhs_block);
+        auto rhs = LowerExpr(bin->right, ir::IRType::I1());
+        auto *rhs_end = builder_.GetInsertPoint().get();
+        builder_.MakeBranch(merge_block.get());
+        builder_.SetInsertPoint(merge_block);
+        return builder_.MakePhi(ir::IRType::I1(),
+            {{lhs_end, conjunction ? "0" : "1"}, {rhs_end, rhs}}, NextTemp("logic"))->name;
       }
       const bool comparison = o == "==" || o == "!=" || o == "<" || o == "<=" ||
                               o == ">" || o == ">=";
@@ -1112,6 +1133,29 @@ private:
         diag_.ReportError(c->loc, frontends::ErrorCode::kUnsupportedLowering,
                           "dynamic or indirect Go calls require resolved ABI metadata");
         return "0";
+      }
+      if (const auto *api = frontends::FindNativeBuiltin(id->name)) {
+        std::vector<std::string> values;
+        std::vector<ir::IRType> types;
+        for (size_t i = 0; i < c->args.size(); ++i) {
+          const auto &arg = c->args[i];
+          auto literal = std::dynamic_pointer_cast<BasicLit>(arg);
+          if (literal && literal->kind == BasicLit::Kind::kString &&
+              i < api->params.size() && api->params[i] == frontends::NativeType::kString) {
+            std::string decoded, error;
+            if (!frontends::DecodeNativeString(literal->value, literal->is_raw_string, true, decoded, error)) {
+              diag_.ReportError(literal->loc, frontends::ErrorCode::kUnsupportedLowering, error);
+              return "";
+            }
+            values.push_back(builder_.MakeStringLiteral(decoded, "go.native.text"));
+            types.push_back(frontends::NativeIRType(frontends::NativeType::kString));
+          } else {
+            auto type = InferExprType(arg);
+            types.push_back(type); values.push_back(LowerExpr(arg, type));
+          }
+        }
+        auto inst = frontends::EmitNativeBuiltin(*api, values, types, builder_, ctx_, diag_, c->loc);
+        return inst ? inst->name : "";
       }
       const auto *target = FindFunction(id->name);
       if (!target || !target->type_params.empty() || target->is_variadic ||

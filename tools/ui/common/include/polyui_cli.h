@@ -27,12 +27,18 @@ class QWidget;
 
 namespace polyglot::tools::ui {
 
+class MainWindow;
+
 /** @brief Parsed @c polyui command-line options (theme system + classic). */
 struct PolyUiCliOptions {
   // --- classic flags (preserved from the previous main.cpp) ---
   bool        show_help{false};
   bool        show_version{false};
   std::string initial_folder;
+  QString initial_file;
+  QString workspace_view;
+  QString peek_symbol;
+  bool ui_smoke{false};
 
   // --- theme-system flags ---
   QString     theme;             ///< --theme <id|path>
@@ -52,6 +58,10 @@ struct PolyUiCliOptions {
 /// flags are silently ignored so that platform-specific @c main files can
 /// add their own switches around this call.
 PolyUiCliOptions ParsePolyUiArgs(int argc, char *argv[]);
+
+void PrepareWorkspaceCli(QApplication &app, const PolyUiCliOptions &options);
+void ApplyWorkspaceCli(MainWindow *window, const PolyUiCliOptions &options);
+int RunWorkspaceSmoke(MainWindow *window, const PolyUiCliOptions &options);
 
 /// Print the canonical @c --help banner shared across all platforms.
 void PrintPolyUiUsage();

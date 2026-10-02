@@ -1,3 +1,5 @@
+#include "frontends/common/include/native_builtins.h"
+#include "frontends/common/include/native_string_literal.h"
 /**
  * @file     lowering.cpp
  * @brief    JavaScript - Polyglot IR lowering
@@ -22,6 +24,9 @@
  * with approximated JavaScript semantics.
  */
 #include <memory>
+#include <cctype>
+#include <cmath>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -465,6 +470,15 @@ private:
         return IsInteger(lhs) ? lhs : ir::IRType::Invalid();
       return ir::IRType::Invalid();
     }
+    if (auto logical = std::dynamic_pointer_cast<LogicalExpr>(e)) {
+      // With boolean operands JavaScript's operand-valued && / || agrees
+      // exactly with a boolean merge. Dynamic truthiness remains explicit.
+      if ((logical->op == "&&" || logical->op == "||") &&
+          InferExpressionType(logical->left).kind == ir::IRTypeKind::kI1 &&
+          InferExpressionType(logical->right).kind == ir::IRTypeKind::kI1)
+        return ir::IRType::I1();
+      return ir::IRType::Invalid();
+    }
     if (auto unary = std::dynamic_pointer_cast<UnaryExpr>(e)) {
       auto operand = InferExpressionType(unary->operand);
       if (unary->op == "!")
@@ -507,6 +521,8 @@ private:
       auto id = std::dynamic_pointer_cast<Identifier>(call->callee);
       if (!id)
         return ir::IRType::Invalid();
+      if (const auto *api = frontends::FindNativeBuiltin(id->name))
+        return frontends::NativeIRType(api->result);
       auto it = function_signatures_.find(id->name);
       return it == function_signatures_.end() ? ir::IRType::Invalid() : it->second.return_type;
     }
@@ -545,12 +561,26 @@ private:
     if (auto bin = std::dynamic_pointer_cast<BinaryExpr>(e)) {
       return LowerBinary(*bin, want);
     }
-    if (auto lg = std::dynamic_pointer_cast<LogicalExpr>(e)) {
-      diag_.ReportError(lg->loc, frontends::ErrorCode::kUnsupportedLowering,
-                        "JavaScript short-circuit/nullish expressions require value-aware CFG "
-                        "lowering");
-      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
-                           : builder_.MakeLiteral((long long)0)->name;
+    if (auto logical = std::dynamic_pointer_cast<LogicalExpr>(e)) {
+      if (InferExpressionType(e).kind != ir::IRTypeKind::kI1) {
+        diag_.ReportError(logical->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "JavaScript logical expressions currently require boolean operands; "
+                         "dynamic truthiness and nullish values need tagged runtime semantics");
+        return builder_.MakeLiteral((long long)0)->name;
+      }
+      const auto left = LowerExpression(logical->left, ir::IRType::I1());
+      auto *left_block = builder_.GetInsertPoint().get();
+      auto *right_block = builder_.CurrentFunction()->CreateBlock("logical.rhs");
+      auto *merge_block = builder_.CurrentFunction()->CreateBlock("logical.end");
+      if (logical->op == "&&") builder_.MakeCondBranch(left, right_block, merge_block);
+      else builder_.MakeCondBranch(left, merge_block, right_block);
+      builder_.SetInsertPoint(right_block);
+      const auto right = LowerExpression(logical->right, ir::IRType::I1());
+      auto *right_end = builder_.GetInsertPoint().get();
+      builder_.MakeBranch(merge_block);
+      builder_.SetInsertPoint(merge_block);
+      return builder_.MakePhi(ir::IRType::I1(), {{left_block, left}, {right_end, right}},
+                              "logical.value")->name;
     }
     if (auto u = std::dynamic_pointer_cast<UnaryExpr>(e)) {
       return LowerUnary(*u, want);
@@ -611,14 +641,14 @@ private:
       builder_.MakeCondBranch(cv, then_bb, else_bb);
       builder_.SetInsertPoint(then_bb);
       auto t = LowerExpression(c->then_branch, want);
-      builder_.MakeStore("cond.tmp", t);
+      builder_.MakeStore(slot->name, t);
       builder_.MakeBranch(end_bb);
       builder_.SetInsertPoint(else_bb);
       auto f = LowerExpression(c->else_branch, want);
-      builder_.MakeStore("cond.tmp", f);
+      builder_.MakeStore(slot->name, f);
       builder_.MakeBranch(end_bb);
       builder_.SetInsertPoint(end_bb);
-      auto load = builder_.MakeLoad("cond.tmp", want, "cond.val");
+      auto load = builder_.MakeLoad(slot->name, want, "cond.val");
       return load->name;
     }
     if (auto call = std::dynamic_pointer_cast<CallExpr>(e)) {
@@ -825,11 +855,10 @@ private:
                           "JavaScript unary minus requires ToNumber runtime semantics");
         return builder_.MakeLiteral((long long)0)->name;
       }
-      auto zero = IsFloat(operand_type) ? builder_.MakeLiteral(0.0)->name
-                                       : builder_.MakeLiteral((long long)0)->name;
-      auto bi = builder_.MakeBinary(IsFloat(operand_type) ? ir::BinaryInstruction::Op::kFSub
-                                                          : ir::BinaryInstruction::Op::kSub,
-                                    zero, v, "neg");
+      if (IsFloat(operand_type))
+        return builder_.MakeFloatNegate(v, operand_type, "neg")->name;
+      auto zero = builder_.MakeLiteral((long long)0)->name;
+      auto bi = builder_.MakeBinary(ir::BinaryInstruction::Op::kSub, zero, v, "neg");
       return bi->name;
     }
     if (u.op == "!") {
@@ -895,6 +924,38 @@ private:
     return "";
   }
 
+  static std::optional<long long> SafeIntegerLiteral(const std::shared_ptr<Expression> &expression) {
+    if (auto unary = std::dynamic_pointer_cast<UnaryExpr>(expression)) {
+      if (unary->op != "+" && unary->op != "-") return std::nullopt;
+      auto value = SafeIntegerLiteral(unary->operand);
+      if (!value) return std::nullopt;
+      return unary->op == "-" ? -*value : *value;
+    }
+    auto literal = std::dynamic_pointer_cast<Literal>(expression);
+    if (!literal || literal->kind != Literal::Kind::kNumber) return std::nullopt;
+    std::string text;
+    for (char c : literal->value) if (c != '_') text += c;
+    constexpr long long max_safe_integer = 9007199254740991LL;
+    try {
+      std::size_t consumed = 0;
+      if (text.size() > 2 && text[0] == '0' &&
+          (text[1] == 'x' || text[1] == 'X' || text[1] == 'b' || text[1] == 'B' ||
+           text[1] == 'o' || text[1] == 'O')) {
+        const int base = text[1] == 'x' || text[1] == 'X' ? 16 :
+                         text[1] == 'b' || text[1] == 'B' ? 2 : 8;
+        const auto value = std::stoll(text.substr(2), &consumed, base);
+        if (consumed == text.size() - 2 && value >= 0 && value <= max_safe_integer) return value;
+        return std::nullopt;
+      }
+      const double value = std::stod(text, &consumed);
+      if (consumed == text.size() && std::isfinite(value) &&
+          std::trunc(value) == value && std::abs(value) <= static_cast<double>(max_safe_integer))
+        return static_cast<long long>(value);
+    } catch (...) {
+    }
+    return std::nullopt;
+  }
+
   std::string LowerCall(const CallExpr &c, const ir::IRType &want) {
     if (c.optional || c.is_new) {
       diag_.ReportError(c.loc, frontends::ErrorCode::kUnsupportedLowering,
@@ -917,6 +978,71 @@ private:
                            : builder_.MakeLiteral((long long)0)->name;
     }
 
+    if (const auto *api = frontends::FindNativeBuiltin(callee_name)) {
+      std::vector<std::string> values;
+      std::vector<ir::IRType> types;
+      for (std::size_t i = 0; i < c.args.size(); ++i) {
+        const auto &arg = c.args[i];
+        auto type = InferExpressionType(arg);
+        if (i < api->params.size() && api->params[i] == frontends::NativeType::kString) {
+          if (std::dynamic_pointer_cast<TemplateLiteral>(arg)) {
+            diag_.ReportError(arg->loc, frontends::ErrorCode::kUnsupportedLowering,
+                "JavaScript native string arguments do not support template interpolation");
+            return "";
+          }
+          if (auto literal = std::dynamic_pointer_cast<Literal>(arg);
+              literal && literal->kind == Literal::Kind::kString) {
+            const auto &source = literal->value;
+            std::string normalized, decoded, error;
+            bool valid = source.size() >= 2 && (source.front() == '\'' || source.front() == '"') &&
+                         source.back() == source.front();
+            // The shared decoder accepts C escapes. Limit this API boundary to
+            // JavaScript escapes and normalize its fixed-width hexadecimal form.
+            for (std::size_t p = 1; valid && p + 1 < source.size(); ++p) {
+              if (source[p] != '\\') { normalized.push_back(source[p]); continue; }
+              if (++p + 1 >= source.size()) { valid = false; break; }
+              const char escape = source[p];
+              if (escape == 'x') {
+                if (p + 3 >= source.size() || !std::isxdigit(static_cast<unsigned char>(source[p + 1])) ||
+                    !std::isxdigit(static_cast<unsigned char>(source[p + 2]))) {
+                  valid = false; break;
+                }
+                normalized += "\\u00";
+                normalized.append(source, p + 1, 2);
+                p += 2;
+              } else if (std::string("nrtbfv\\\"'u").find(escape) != std::string::npos) {
+                normalized.push_back('\\'); normalized.push_back(escape);
+              } else {
+                valid = false;
+              }
+            }
+            if (!valid || !frontends::DecodeNativeString(normalized, false, false, decoded, error)) {
+              diag_.ReportError(arg->loc, frontends::ErrorCode::kUnsupportedLowering,
+                  "JavaScript native string literal: " + (valid ? error : "unsupported escape or quoted form"));
+              return "";
+            }
+            types.push_back(ir::IRType::Pointer(ir::IRType::I8()));
+            values.push_back(builder_.MakeStringLiteral(decoded, "jsnative"));
+            continue;
+          }
+        }
+        if (i < api->params.size() && api->params[i] == frontends::NativeType::kInt &&
+            type.kind == ir::IRTypeKind::kF64) {
+          if (auto exact = SafeIntegerLiteral(arg)) {
+            types.push_back(ir::IRType::I64(true));
+            values.push_back(builder_.MakeLiteral(*exact)->name);
+            continue;
+          }
+          diag_.ReportError(arg->loc, frontends::ErrorCode::kUnsupportedLowering,
+              "JavaScript native integer argument requires an integer ABI value or a safe "
+              "integer Number literal; Number variables are not converted implicitly");
+          return "";
+        }
+        types.push_back(type); values.push_back(LowerExpression(arg, type));
+      }
+      auto inst = frontends::EmitNativeBuiltin(*api, values, types, builder_, ctx_, diag_, c.loc);
+      return inst ? inst->name : "";
+    }
     auto signature = function_signatures_.find(callee_name);
     if (signature == function_signatures_.end() ||
         signature->second.return_type.kind == ir::IRTypeKind::kInvalid) {

@@ -70,20 +70,20 @@ void ThemeManager::RegisterBuiltinThemes() {
   // ── Dark (default, VS Code-like) ─────────────────────────────────────
   {
     ThemeColors t;
-    t.background = QColor("#1e1e1e");
-    t.surface = QColor("#2d2d2d");
-    t.surface_alt = QColor("#252526");
-    t.border = QColor("#454545");
+    t.background = QColor("#111923");
+    t.surface = QColor("#1b2735");
+    t.surface_alt = QColor("#16212e");
+    t.border = QColor("#314257");
 
-    t.text = QColor("#cccccc");
-    t.text_secondary = QColor("#969696");
-    t.text_disabled = QColor("#666666");
+    t.text = QColor("#dce6f2");
+    t.text_secondary = QColor("#97a9be");
+    t.text_disabled = QColor("#68788d");
 
-    t.accent = QColor("#0e639c");
+    t.accent = QColor("#3b82bf");
     t.accent_hover = QColor("#1177bb");
-    t.accent_pressed = QColor("#094771");
+    t.accent_pressed = QColor("#274864");
 
-    t.selection = QColor("#094771");
+    t.selection = QColor("#274864");
     t.selection_text = QColor("#ffffff");
 
     t.error = QColor("#f44747");
@@ -91,46 +91,46 @@ void ThemeManager::RegisterBuiltinThemes() {
     t.success = QColor("#89d185");
     t.info = QColor("#3794ff");
 
-    t.editor_background = QColor("#1e1e1e");
-    t.editor_text = QColor("#d4d4d4");
-    t.editor_selection = QColor("#264f78");
-    t.editor_current_line = QColor("#2a2d2e");
-    t.editor_line_number = QColor("#858585");
-    t.editor_line_number_bg = QColor("#1e1e1e");
+    t.editor_background = QColor("#111923");
+    t.editor_text = QColor("#dce6f2");
+    t.editor_selection = QColor("#274864");
+    t.editor_current_line = QColor("#1a2a3b");
+    t.editor_line_number = QColor("#6f849d");
+    t.editor_line_number_bg = QColor("#111923");
 
-    t.tab_background = QColor("#2d2d2d");
-    t.tab_active = QColor("#1e1e1e");
-    t.tab_active_indicator = QColor("#007acc");
-    t.tab_hover = QColor("#383838");
-    t.tab_text = QColor("#969696");
+    t.tab_background = QColor("#1b2735");
+    t.tab_active = QColor("#111923");
+    t.tab_active_indicator = QColor("#5aa9e6");
+    t.tab_hover = QColor("#293b50");
+    t.tab_text = QColor("#97a9be");
     t.tab_active_text = QColor("#ffffff");
 
-    t.statusbar_background = QColor("#007acc");
+    t.statusbar_background = QColor("#152334");
     t.statusbar_text = QColor("#ffffff");
 
-    t.menu_background = QColor("#252526");
-    t.menu_text = QColor("#cccccc");
-    t.menu_hover = QColor("#094771");
-    t.menu_separator = QColor("#454545");
+    t.menu_background = QColor("#16212e");
+    t.menu_text = QColor("#dce6f2");
+    t.menu_hover = QColor("#274864");
+    t.menu_separator = QColor("#314257");
 
-    t.button_background = QColor("#3c3c3c");
-    t.button_text = QColor("#cccccc");
-    t.button_hover = QColor("#505050");
-    t.button_primary = QColor("#0e639c");
+    t.button_background = QColor("#223247");
+    t.button_text = QColor("#dce6f2");
+    t.button_hover = QColor("#2c425c");
+    t.button_primary = QColor("#3b82bf");
     t.button_primary_text = QColor("#ffffff");
     t.button_primary_hover = QColor("#1177bb");
 
-    t.input_background = QColor("#3c3c3c");
-    t.input_text = QColor("#cccccc");
-    t.input_border = QColor("#555555");
+    t.input_background = QColor("#223247");
+    t.input_text = QColor("#dce6f2");
+    t.input_border = QColor("#3d536e");
     t.input_placeholder = QColor("#888888");
 
-    t.scrollbar_bg = QColor("#1e1e1e");
-    t.scrollbar_thumb = QColor("#424242");
-    t.scrollbar_thumb_hover = QColor("#4f4f4f");
+    t.scrollbar_bg = QColor("#111923");
+    t.scrollbar_thumb = QColor("#34495f");
+    t.scrollbar_thumb_hover = QColor("#4b6782");
 
-    t.progress_background = QColor("#1e1e1e");
-    t.progress_chunk = QColor("#0e639c");
+    t.progress_background = QColor("#111923");
+    t.progress_chunk = QColor("#3b82bf");
 
     themes_["Dark"] = t;
   }
@@ -381,7 +381,7 @@ QString ThemeManager::TabWidgetStylesheet(bool bottom_tabs) const {
   const auto &t = Active();
   QString border_side = bottom_tabs ? "border-bottom" : "border-top";
   int font_sz = bottom_tabs ? 11 : 12;
-  int min_width = bottom_tabs ? 80 : 100;
+  int min_width = bottom_tabs ? 48 : 100;
   return QString("QTabWidget::pane { border: none; background: %1; }"
                  "QTabBar::tab { background: %2; color: %3; padding: %4px 12px; "
                  "border: none; min-width: %5px; font-size: %6px; }"

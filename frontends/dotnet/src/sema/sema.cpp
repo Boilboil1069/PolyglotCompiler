@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     sema.cpp
  * @brief    .NET/C# language frontend implementation
@@ -33,6 +34,7 @@ public:
   void Run() {
     scope_stack_.push_back({ScopeKind::kModule});
     Syms().EnterScope("<dotnet-module>", ScopeKind::kModule);
+    frontends::RegisterNativeBuiltins(Syms(), Types(), "dotnet");
 
     // Process using directives
     for (const auto &u : module_.usings) {
@@ -667,10 +669,10 @@ private:
       if (!v.empty() && v[0] == '"')
         return Type::String();
       if (!v.empty() && v[0] == '\'')
-        return Type::Int();
+        return Type::Int(32, true);
       if (v.find('.') != std::string::npos)
         return Type::Float();
-      return Type::Int();
+      return Type::Int(32, true);
     }
 
     if (auto unary = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
@@ -693,7 +695,8 @@ private:
       if (left.kind == core::TypeKind::kFloat || right.kind == core::TypeKind::kFloat) {
         return Type::Float();
       }
-      return Type::Int();
+      return Type::Int(std::max(32, std::max(left.bit_width, right.bit_width)),
+                       left.is_signed && right.is_signed);
     }
 
     if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {

@@ -337,6 +337,10 @@ std::shared_ptr<Expression> PythonParser::ParseAtom() {
     literal->value = current_.lexeme;
     literal->loc = current_.loc;
     literal->is_string = current_.kind == frontends::TokenKind::kString;
+    literal->is_raw_string = current_.raw_lexeme == "__polyglot_python_raw_string__" ||
+                             current_.raw_lexeme == "__polyglot_python_raw_bytes__";
+    literal->is_bytes_string = current_.raw_lexeme == "__polyglot_python_bytes__" ||
+                               current_.raw_lexeme == "__polyglot_python_raw_bytes__";
     Consume();
     return literal;
   }

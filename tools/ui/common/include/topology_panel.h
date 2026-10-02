@@ -23,6 +23,7 @@
 #include <QSplitter>
 #include <QTimer>
 #include <QToolBar>
+#include <QTabWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -117,6 +118,8 @@ public:
   const QString &NodeName() const { return name_; }
   const QString &Language() const { return language_; }
   const QString &Kind() const { return kind_; }
+  void SetDescription(const QString &description) { description_ = description; setToolTip(description); }
+  const QString &Description() const { return description_; }
 
   // Add an input or output port; returns the port's scene-center position
   QPointF AddInputPort(uint64_t port_id, const QString &name, const QString &type_name);
@@ -147,6 +150,11 @@ public:
   void SetSourceLocation(const QString &file, int line);
   const QString &SourceFile() const { return source_file_; }
   int SourceLine() const { return source_line_; }
+  void SetDefinitionTarget(const QString &symbol, const QString &context) {
+    definition_symbol_ = symbol; definition_context_ = context;
+  }
+  const QString &DefinitionSymbol() const { return definition_symbol_; }
+  const QString &DefinitionContext() const { return definition_context_; }
 
   // Expandable drill-down state: whether this node has internal children
   // that can be revealed by double-clicking.
@@ -175,6 +183,7 @@ private:
   QString name_;
   QString language_;
   QString kind_;
+  QString description_;
 
   std::vector<TopoPortItem *> input_ports_;
   std::vector<TopoPortItem *> output_ports_;
@@ -198,6 +207,8 @@ private:
 
   QString source_file_;
   int source_line_{0};
+  QString definition_symbol_;
+  QString definition_context_;
 };
 
 // ============================================================================
@@ -214,6 +225,12 @@ public:
   const QString &Status() const { return status_; }
   void SetStatus(const QString &status);
   void UpdateEndpoints(const QPointF &start, const QPointF &end);
+  void RouteVia(qreal lane_y);
+  void SetFlowLabel(const QString &label, const QString &detail);
+  const QString &FlowLabel() const { return flow_label_; }
+  const QString &FlowDetail() const { return flow_detail_; }
+  QPainterPath shape() const override;
+  void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) override;
 
   // Source/target info for deletion
   uint64_t SourceNodeId() const { return source_node_id_; }
@@ -229,6 +246,10 @@ private:
   void RebuildPath(const QPointF &start, const QPointF &end);
   uint64_t edge_id_;
   QString status_;
+  QString flow_label_;
+  QString flow_detail_;
+  QGraphicsTextItem *label_item_{nullptr};
+  QPointF end_point_;
 
   uint64_t source_node_id_{0};
   uint64_t source_port_id_{0};
@@ -263,6 +284,7 @@ public:
 
 protected:
   void wheelEvent(QWheelEvent *event) override;
+  void drawBackground(QPainter *painter, const QRectF &rect) override;
 
 private:
   TopologyPanel *panel_{nullptr};
@@ -363,6 +385,7 @@ public:
 signals:
   // Re-emit navigation request so parent can forward to the editor
   void NodeDoubleClicked(const QString &filename, int line);
+  void DefinitionRequested(const QString &qualified_symbol, const QString &context_file);
 
 private slots:
   void OnNodeSelected();
@@ -471,6 +494,7 @@ public:
 signals:
   // Emitted when a node is double-clicked (navigate to source)
   void NodeDoubleClicked(const QString &filename, int line);
+  void DefinitionRequested(const QString &qualified_symbol, const QString &context_file);
 
   // Emitted when validation completes
   void ValidationComplete(int errors, int warnings);
@@ -484,6 +508,9 @@ signals:
 
   // Emitted when a .poly file is generated and should be opened in editor
   void OpenFileRequested(const QString &file_path);
+
+protected:
+  void resizeEvent(QResizeEvent *event) override;
 
 private slots:
   void OnRefresh();
@@ -506,6 +533,8 @@ private slots:
   void OnForceLayoutTick();
 
 private:
+  void FitReadable();
+  void RevealInspector();
   void SetupUI();
   void SetupToolbar();
   void SetupScene();
@@ -514,6 +543,7 @@ private:
   void ApplyGrouping();
   void LayoutNodes();
   void UpdateDetailsPanel(uint64_t node_id);
+  void UpdateEdgeDetails(TopoEdgeItem *edge);
   // .poly file synchronization helpers
   void SyncEdgeToFile(TopoEdgeItem *edge);
   void RemoveEdgeFromFile(TopoEdgeItem *edge);
@@ -528,6 +558,7 @@ private:
   QGraphicsScene *scene_{nullptr};
   QSplitter *splitter_{nullptr};
   QTreeWidget *details_tree_{nullptr};
+  QTabWidget *inspector_tabs_{nullptr};
   QPlainTextEdit *diagnostics_output_{nullptr};
   QComboBox *layout_combo_{nullptr};
   QLabel *status_label_{nullptr};
@@ -546,7 +577,7 @@ private:
     kCall,     // Show only FUNC/PIPELINE call-level data flow
     kPipeline, // Show PIPELINE internal stages and their data flow
   };
-  ViewMode view_mode_{ViewMode::kLink};
+  ViewMode view_mode_{ViewMode::kCall};
   QComboBox *view_mode_combo_{nullptr};
 
   // Grouping mode: how to visually cluster nodes

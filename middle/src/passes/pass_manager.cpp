@@ -58,41 +58,20 @@ void PassManager::BuildO1() {
   pipeline_.push_back({"CSE", [](ir::Function &fn) { ir::passes::CSE(fn); }});
 }
 
+// Only transformations with complete CFG/SSA and alias semantics belong in
+// the compiler's default pipeline. The experimental loop/vector transforms
+// remain available as explicit APIs; they are not safe production defaults.
 void PassManager::BuildO2() {
-  pipeline_.push_back(
-      {"StrengthReduction", [](ir::Function &fn) { transform::StrengthReduction(fn); }});
-  pipeline_.push_back({"LoopInvariantCodeMotion",
-                       [](ir::Function &fn) { transform::LoopInvariantCodeMotion(fn); }});
-  pipeline_.push_back({"LoopUnrolling", [](ir::Function &fn) { transform::LoopUnrolling(fn, 4); }});
-  pipeline_.push_back(
-      {"DeadStoreElimination", [](ir::Function &fn) { transform::DeadStoreElimination(fn); }});
-  pipeline_.push_back({"InductionVariableElimination",
-                       [](ir::Function &fn) { transform::InductionVariableElimination(fn); }});
-  pipeline_.push_back({"SCCP", [](ir::Function &fn) { transform::SCCP(fn); }});
-  pipeline_.push_back({"GVN", [](ir::Function &fn) { transform::GVN(fn); }});
-  pipeline_.push_back({"JumpThreading", [](ir::Function &fn) { transform::JumpThreading(fn); }});
-  // Cleanup after loop opts
-  pipeline_.push_back(
-      {"DeadCodeEliminate (post-O2)", [](ir::Function &fn) { ir::passes::DeadCodeEliminate(fn); }});
-  pipeline_.push_back(
-      {"CanonicalizeCFG (post-O2)", [](ir::Function &fn) { ir::passes::CanonicalizeCFG(fn); }});
+  pipeline_.push_back({"StrengthReduction", [](ir::Function &fn) { transform::StrengthReduction(fn); }});
+  pipeline_.push_back({"CSE (post-O2)", [](ir::Function &fn) { ir::passes::CSE(fn); }});
+  pipeline_.push_back({"DeadCodeEliminate (post-O2)", [](ir::Function &fn) { ir::passes::DeadCodeEliminate(fn); }});
 }
 
 void PassManager::BuildO3() {
-  pipeline_.push_back(
-      {"TailCallOptimization", [](ir::Function &fn) { transform::TailCallOptimization(fn); }});
   pipeline_.push_back({"EscapeAnalysis", [](ir::Function &fn) { transform::EscapeAnalysis(fn); }});
-  pipeline_.push_back(
-      {"ScalarReplacement", [](ir::Function &fn) { transform::ScalarReplacement(fn); }});
-  pipeline_.push_back(
-      {"AutoVectorization", [](ir::Function &fn) { transform::AutoVectorization(fn); }});
-  pipeline_.push_back({"LoopFusion", [](ir::Function &fn) { transform::LoopFusion(fn); }});
-  pipeline_.push_back({"CodeSinking", [](ir::Function &fn) { transform::CodeSinking(fn); }});
-  pipeline_.push_back({"CodeHoisting", [](ir::Function &fn) { transform::CodeHoisting(fn); }});
-  pipeline_.push_back({"LoopTiling", [](ir::Function &fn) { transform::LoopTiling(fn, 64); }});
-  // Final cleanup
-  pipeline_.push_back(
-      {"DeadCodeEliminate (post-O3)", [](ir::Function &fn) { ir::passes::DeadCodeEliminate(fn); }});
+  pipeline_.push_back({"ConstantFold (post-O3)", [](ir::Function &fn) { ir::passes::ConstantFold(fn); }});
+  pipeline_.push_back({"CopyProp (post-O3)", [](ir::Function &fn) { ir::passes::CopyProp(fn); }});
+  pipeline_.push_back({"DeadCodeEliminate (post-O3)", [](ir::Function &fn) { ir::passes::DeadCodeEliminate(fn); }});
 }
 
 // ============================================================================

@@ -349,7 +349,13 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx,
 
     std::shared_ptr<Instruction> new_inst;
 
-    if (StartsWith(inst_part, "phi")) {
+    if (StartsWith(inst_part, "const_bits ")) {
+      auto constant = std::make_shared<ConstantInstruction>();
+      constant->name = lhs;
+      constant->type = ty;
+      constant->bits = std::stoull(Trim(inst_part.substr(11)));
+      new_inst = constant;
+    } else if (StartsWith(inst_part, "phi")) {
       auto phi = std::make_shared<PhiInstruction>();
       phi->name = lhs;
       phi->type = ty;

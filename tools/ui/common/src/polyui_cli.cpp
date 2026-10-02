@@ -10,7 +10,11 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QEventLoop>
 #include <QFileInfo>
+#include <QFileSystemModel>
+#include <QTreeView>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -18,9 +22,18 @@
 #include <QPixmap>
 #include <QStyleFactory>
 #include <QWidget>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QTextBrowser>
+#include <QTimer>
+#include <QSettings>
+#include <QTemporaryDir>
+#include <memory>
 #include <iostream>
 
 #include "common/include/version.h"
+#include "tools/ui/common/include/mainwindow.h"
+#include "tools/ui/common/include/code_editor.h"
 #include "tools/ui/common/include/settings_service.h"
 #include "tools/ui/common/include/theme_service.h"
 
@@ -36,6 +49,14 @@ PolyUiCliOptions ParsePolyUiArgs(int argc, char *argv[]) {
       o.show_version = true;
     } else if ((a == "--folder" || a == "-d") && i + 1 < argc) {
       o.initial_folder = argv[++i];
+    } else if (a == "--file" && i + 1 < argc) {
+      o.initial_file = QString::fromLocal8Bit(argv[++i]);
+    } else if (a == "--view" && i + 1 < argc) {
+      o.workspace_view = QString::fromLocal8Bit(argv[++i]);
+    } else if (a == "--peek" && i + 1 < argc) {
+      o.peek_symbol = QString::fromLocal8Bit(argv[++i]);
+    } else if (a == "--ui-smoke") {
+      o.ui_smoke = true;
     } else if (a == "--theme" && i + 1 < argc) {
       o.theme = QString::fromLocal8Bit(argv[++i]);
     } else if (a == "--list-themes") {
@@ -56,6 +77,11 @@ void PrintPolyUiUsage() {
             << "\n"
             << "General options:\n"
             << "  --folder <path>            Open a project folder on startup\n"
+            << "  --file <path>              Open a source document on startup\n"
+            << "  --view <code|split|flow>    Select the workspace layout\n"
+            << "  --peek <symbol>            Preview a function in the source editor\n"
+            << "  --ui-smoke                 Verify inline docs and right-click navigation\n"
+            << "                             (requires --headless --file --peek)\n"
             << "  --version, -v              Print version information and exit\n"
             << "  --help, -h                 Show this help message and exit\n"
             << "\n"
@@ -84,6 +110,10 @@ void ApplyFallbackDarkPalette(QApplication &app) {
   // Style is set unconditionally so all platforms render with the same
   // baseline before any QSS arrives from the theme files.
   app.setStyle(QStyleFactory::create("Fusion"));
+#ifdef Q_OS_MAC
+  // Offscreen Qt has no native menu font; use a real installed UI family.
+  app.setFont(QFont(QStringLiteral("Helvetica Neue"), 11));
+#endif
 
   QPalette p;
   p.setColor(QPalette::Window,           QColor(45, 45, 48));
@@ -179,7 +209,35 @@ int HandleValidateThemeCli(const QString &path) {
 
 int HandleScreenshotCli(QWidget *root_widget, const QString &out_path) {
   if (!root_widget || out_path.isEmpty()) return 2;
-  // Flush any pending events so the widget reflects its final state.
+  // File-system models settle asynchronously and external volumes can take
+  // seconds to enumerate. Wait for actual rows, rather than recording an empty
+  // explorer merely because a fixed startup delay elapsed.
+  QList<QFileSystemModel *> pending_models;
+  for (auto *tree : root_widget->findChildren<QTreeView *>()) {
+    auto *model = qobject_cast<QFileSystemModel *>(tree->model());
+    // An unopened explorer has an invalid view root but its model reports ".".
+    // There is no visible directory to await in --file-only workspaces.
+    if (model && tree->isVisible() && tree->rootIndex().isValid() && !model->rootPath().isEmpty() &&
+        !QDir(model->rootPath()).entryList(model->nameFilters(), model->filter()).isEmpty() &&
+        model->rowCount(model->index(model->rootPath())) == 0)
+      pending_models.push_back(model);
+  }
+  QEventLoop settle;
+  QTimer poll;
+  QObject::connect(&poll, &QTimer::timeout, &settle, [&]() {
+    for (auto *model : pending_models)
+      if (model->rowCount(model->index(model->rootPath())) == 0) return;
+    settle.quit();
+  });
+  poll.start(25);
+  QTimer::singleShot(5000, &settle, &QEventLoop::quit);
+  settle.exec();
+  for (auto *model : pending_models) {
+    if (model->rowCount(model->index(model->rootPath())) == 0) {
+      std::cerr << "polyui: file explorer did not load before screenshot timeout\n";
+      return 5;
+    }
+  }
   QApplication::processEvents();
   const QPixmap pix = root_widget->grab();
   if (pix.isNull()) {
@@ -190,6 +248,88 @@ int HandleScreenshotCli(QWidget *root_widget, const QString &out_path) {
     std::cerr << "polyui: --screenshot failed to write " << out_path.toStdString() << "\n";
     return 4;
   }
+  return 0;
+}
+
+
+void PrepareWorkspaceCli(QApplication &app, const PolyUiCliOptions &options) {
+  app.setProperty("polyui.headless", options.headless);
+  if (!options.headless) return;
+  // GUI tests must neither depend on nor overwrite the user's saved layout.
+  static auto isolated_settings = std::make_unique<QTemporaryDir>();
+  app.setProperty("polyui.settings_file", isolated_settings->filePath(QStringLiteral("ide.ini")));
+  QSettings::setDefaultFormat(QSettings::IniFormat);
+  QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, isolated_settings->path());
+  QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, isolated_settings->path());
+}
+
+void ApplyWorkspaceCli(MainWindow *window, const PolyUiCliOptions &options) {
+  if (!window) return;
+  if (!options.initial_file.isEmpty()) window->OpenWorkspaceFile(options.initial_file);
+  if (!options.workspace_view.isEmpty()) window->SetWorkspaceView(options.workspace_view);
+  if (!options.peek_symbol.isEmpty()) window->PreviewSymbol(options.peek_symbol);
+}
+
+int RunWorkspaceSmoke(MainWindow *window, const PolyUiCliOptions &options) {
+  if (!window || !options.headless || options.initial_file.isEmpty() || options.peek_symbol.isEmpty()) {
+    std::cerr << "polyui: --ui-smoke requires --headless --file and --peek\n";
+    return 2;
+  }
+  QApplication::processEvents();
+  CodeEditor *editor = nullptr;
+  for (auto *candidate : window->findChildren<CodeEditor *>()) {
+    if (QFileInfo(candidate->FilePath()).absoluteFilePath() == QFileInfo(options.initial_file).absoluteFilePath())
+      editor = candidate;
+  }
+  if (!editor || !editor->InlineDefinitionVisible()) {
+    std::cerr << "polyui smoke: inline definition is not visible\n"; return 3;
+  }
+  const auto definitions = editor->InspectAtCursor(editor->textCursor());
+  if (definitions.size() != 1 || definitions.front().documentation.empty()) {
+    std::cerr << "polyui smoke: expected one documented source definition\n"; return 4;
+  }
+  auto *documentation = editor->findChild<QTextBrowser *>("foreignDocumentation");
+  auto *preview = editor->findChild<QPlainTextEdit *>("foreignSourcePreview");
+  if (!documentation || !preview || !preview->isReadOnly() ||
+      !documentation->toPlainText().contains(QString::fromStdString(definitions.front().documentation)) ||
+      !preview->toPlainText().contains(QString::fromStdString(definitions.front().name))) {
+    std::cerr << "polyui smoke: source documentation / preview mismatch\n"; return 5;
+  }
+  if (!options.screenshot.isEmpty() && HandleScreenshotCli(window, options.screenshot) != 0) return 6;
+  bool action_triggered = false;
+  QTimer::singleShot(0, window, [&]() {
+    auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+    if (!menu) return;
+    if (!options.screenshot.isEmpty()) menu->grab().save(options.screenshot + ".context.png");
+    for (auto *action : menu->actions()) {
+      if (action->objectName() == "goToDefinitionAction" && action->isEnabled()) {
+        action->trigger(); action_triggered = true; break;
+      }
+    }
+    menu->close();
+  });
+  // A bounded fallback prevents a platform popup failure from hanging CI.
+  QTimer::singleShot(2000, window, []() {
+    if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget())) menu->close();
+  });
+  const auto point = editor->cursorRect().center();
+  QContextMenuEvent context(QContextMenuEvent::Mouse, point, editor->viewport()->mapToGlobal(point));
+  QApplication::sendEvent(editor->viewport(), &context);
+  QApplication::processEvents();
+  bool navigated = false;
+  const auto &expected = definitions.front().location;
+  for (auto *candidate : window->findChildren<CodeEditor *>()) {
+    if (candidate->FilePath() == QString::fromStdString(expected.file) && candidate->isVisible() &&
+        candidate->textCursor().blockNumber() == expected.line - 1 &&
+        candidate->textCursor().positionInBlock() == expected.column - 1) navigated = true;
+  }
+  if (!action_triggered || !navigated) {
+    std::cerr << "polyui smoke: context-menu definition navigation failed\n"; return 7;
+  }
+  QJsonObject report{{"inlineDocumentation", true}, {"sourcePreview", true},
+                     {"contextMenuDefinition", true}, {"target", QString::fromStdString(expected.file)},
+                     {"line", expected.line}, {"column", expected.column}};
+  std::cout << QJsonDocument(report).toJson(QJsonDocument::Compact).toStdString() << '\n';
   return 0;
 }
 

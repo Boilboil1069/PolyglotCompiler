@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     sema.cpp
  * @brief    Poly language frontend implementation
@@ -92,8 +93,7 @@ PloySema::PloySema(frontends::Diagnostics &diagnostics, const PloySemaOptions &o
   // checking without requiring a LINK declaration or an external runtime.
   const auto register_file_builtin =
       [this](const std::string &name, std::vector<core::Type> params,
-             std::vector<std::string> param_names) {
-        const core::Type result_type = core::Type::Int();
+             std::vector<std::string> param_names, const core::Type &result_type) {
         PloySymbol symbol;
         symbol.kind = PloySymbol::Kind::kFunction;
         symbol.name = name;
@@ -117,16 +117,21 @@ PloySema::PloySema(frontends::Diagnostics &diagnostics, const PloySemaOptions &o
         RegisterFunctionSignature(name, sig);
       };
 
-  register_file_builtin("file_open_ints", {core::Type::String()}, {"path"});
-  register_file_builtin("file_open_write", {core::Type::String()}, {"path"});
-  register_file_builtin("file_next_int", {core::Type::Int(), core::Type::Int()},
-                        {"fd", "eof"});
-  register_file_builtin("file_write_text", {core::Type::Int(), core::Type::String()},
-                        {"fd", "text"});
-  register_file_builtin("file_write_int",
-                        {core::Type::Int(), core::Type::Int(), core::Type::Int()},
-                        {"fd", "value", "separator"});
-  register_file_builtin("file_close", {core::Type::Int()}, {"fd"});
+  for (const auto &api : frontends::NativeBuiltins()) {
+    std::vector<core::Type> params;
+    std::vector<std::string> names;
+    for (auto type : api.params) {
+      params.push_back(frontends::NativeCoreType(type));
+      names.push_back("arg" + std::to_string(names.size()));
+    }
+    const std::string name = api.name;
+    if (name == "file_open_ints" || name == "file_open_write") names = {"path"};
+    else if (name == "file_next_int") names = {"fd", "eof"};
+    else if (name == "file_write_text") names = {"fd", "text"};
+    else if (name == "file_write_int") names = {"fd", "value", "separator"};
+    else if (name == "file_close") names = {"fd"};
+    register_file_builtin(api.name, params, names, frontends::NativeCoreType(api.result));
+  }
 }
 
 // ============================================================================

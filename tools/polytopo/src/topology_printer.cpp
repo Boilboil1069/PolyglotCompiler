@@ -197,9 +197,11 @@ std::string TopologyPrinter::FormatNodeBox(const TopologyNode &node) const {
   case TopologyNode::Kind::kMapFunc:
     kind_icon = "map";
     break;
-  case TopologyNode::Kind::kExternalCall:
-    kind_icon = "ext";
-    break;
+  case TopologyNode::Kind::kExternalCall: kind_icon = "ext"; break;
+  case TopologyNode::Kind::kBoundary: kind_icon = "boundary"; break;
+  case TopologyNode::Kind::kValue: kind_icon = "value"; break;
+  case TopologyNode::Kind::kOperation: kind_icon = "op"; break;
+  case TopologyNode::Kind::kConversion: kind_icon = "convert"; break;
   }
 
   // Header line
@@ -293,8 +295,11 @@ std::string TopologyPrinter::DotNodeColor(const TopologyNode &node) const {
     return "#FF9800";
   case TopologyNode::Kind::kMapFunc:
     return "#795548";
-  case TopologyNode::Kind::kExternalCall:
-    return "#607D8B";
+  case TopologyNode::Kind::kExternalCall: return "#607D8B";
+  case TopologyNode::Kind::kBoundary: return "#38BDF8";
+  case TopologyNode::Kind::kValue: return "#94A3B8";
+  case TopologyNode::Kind::kOperation: return "#A78BFA";
+  case TopologyNode::Kind::kConversion: return "#FBBF24";
   }
   return "#9E9E9E";
 }
@@ -411,111 +416,76 @@ void TopologyPrinter::PrintDot(const TopologyGraph &graph, std::ostream &out) co
 // ============================================================================
 
 void TopologyPrinter::PrintJson(const TopologyGraph &graph, std::ostream &out) const {
-  out << "{\n";
-  out << "  \"module\": \"" << graph.module_name << "\",\n";
-  out << "  \"source_file\": \"" << graph.source_file << "\",\n";
-  out << "  \"node_count\": " << graph.NodeCount() << ",\n";
-  out << "  \"edge_count\": " << graph.EdgeCount() << ",\n";
-
-  // Nodes
-  out << "  \"nodes\": [\n";
-  for (size_t i = 0; i < graph.Nodes().size(); ++i) {
-    const auto &node = graph.Nodes()[i];
-    out << "    {\n";
-    out << "      \"id\": " << node.id << ",\n";
-    out << "      \"name\": \"" << node.name << "\",\n";
-    out << "      \"language\": \"" << node.language << "\",\n";
-
-    std::string kind_str;
-    switch (node.kind) {
-    case TopologyNode::Kind::kFunction:
-      kind_str = "function";
-      break;
-    case TopologyNode::Kind::kConstructor:
-      kind_str = "constructor";
-      break;
-    case TopologyNode::Kind::kMethod:
-      kind_str = "method";
-      break;
-    case TopologyNode::Kind::kPipeline:
-      kind_str = "pipeline";
-      break;
-    case TopologyNode::Kind::kMapFunc:
-      kind_str = "map_func";
-      break;
-    case TopologyNode::Kind::kExternalCall:
-      kind_str = "external_call";
-      break;
+  auto quote = [](const std::string &value) {
+    std::ostringstream escaped;
+    escaped << '"';
+    for (unsigned char c : value) {
+      if (c == '"' || c == '\\') escaped << '\\' << c;
+      else if (c < 0x20) escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0') << int(c);
+      else escaped << c;
     }
-    out << "      \"kind\": \"" << kind_str << "\",\n";
-    out << "      \"is_linked\": " << (node.is_linked ? "true" : "false") << ",\n";
-
-    // Input ports
-    out << "      \"inputs\": [\n";
-    for (size_t j = 0; j < node.inputs.size(); ++j) {
-      const auto &port = node.inputs[j];
-      out << "        {\"id\": " << port.id << ", \"name\": \"" << port.name << "\", \"type\": \""
-          << (port.type.name.empty() ? "Any" : port.type.name) << "\", \"index\": " << port.index
-          << "}";
-      if (j + 1 < node.inputs.size())
-        out << ",";
-      out << "\n";
+    escaped << '"'; return escaped.str();
+  };
+  const auto kind = [](TopologyNode::Kind value) {
+    switch (value) {
+    case TopologyNode::Kind::kFunction: return "function";
+    case TopologyNode::Kind::kConstructor: return "constructor";
+    case TopologyNode::Kind::kMethod: return "method";
+    case TopologyNode::Kind::kPipeline: return "pipeline";
+    case TopologyNode::Kind::kMapFunc: return "map_func";
+    case TopologyNode::Kind::kExternalCall: return "external_call";
+    case TopologyNode::Kind::kBoundary: return "boundary";
+    case TopologyNode::Kind::kValue: return "value";
+    case TopologyNode::Kind::kOperation: return "operation";
+    case TopologyNode::Kind::kConversion: return "conversion";
     }
-    out << "      ],\n";
-
-    // Output ports
-    out << "      \"outputs\": [\n";
-    for (size_t j = 0; j < node.outputs.size(); ++j) {
-      const auto &port = node.outputs[j];
-      out << "        {\"id\": " << port.id << ", \"name\": \"" << port.name << "\", \"type\": \""
-          << (port.type.name.empty() ? "Any" : port.type.name) << "\", \"index\": " << port.index
-          << "}";
-      if (j + 1 < node.outputs.size())
-        out << ",";
-      out << "\n";
-    }
-    out << "      ]\n";
-
-    out << "    }";
-    if (i + 1 < graph.Nodes().size())
-      out << ",";
-    out << "\n";
+    return "unknown";
+  };
+  out << "{\n  \"schema\": \"polyglot.topology.v2\",\n  \"module\": " << quote(graph.module_name)
+      << ",\n  \"source_file\": " << quote(graph.source_file)
+      << ",\n  \"node_count\": " << graph.NodeCount() << ",\n  \"edge_count\": " << graph.EdgeCount()
+      << ",\n  \"nodes\": [\n";
+  bool first = true;
+  for (const auto &node : graph.Nodes()) {
+    if (!first) out << ",\n"; first = false;
+    out << "    {\"id\":" << node.id << ",\"name\":" << quote(node.name)
+        << ",\"display_name\":" << quote(node.display_name) << ",\"language\":" << quote(node.language)
+        << ",\"kind\":" << quote(kind(node.kind)) << ",\"context_node_id\":" << node.context_node_id
+        << ",\"is_linked\":" << (node.is_linked ? "true" : "false")
+        << ",\"description\":" << quote(node.description)
+        << ",\"file\":" << quote(node.loc.file) << ",\"line\":" << node.loc.line;
+    const auto ports = [&](const char *field, const std::vector<Port> &ports) {
+      out << ",\"" << field << "\":[";
+      for (size_t i = 0; i < ports.size(); ++i) {
+        const auto &p = ports[i]; if (i) out << ',';
+        out << "{\"id\":" << p.id << ",\"name\":" << quote(p.name)
+            << ",\"type\":" << quote(p.type.name.empty() ? "Any" : p.type.name)
+            << ",\"index\":" << p.index << '}';
+      }
+      out << ']';
+    };
+    ports("inputs", node.inputs); ports("outputs", node.outputs); out << '}';
   }
-  out << "  ],\n";
-
-  // Edges
-  out << "  \"edges\": [\n";
-  for (size_t i = 0; i < graph.Edges().size(); ++i) {
-    const auto &edge = graph.Edges()[i];
-    std::string status_str;
+  out << "\n  ],\n  \"edges\": [\n";
+  first = true;
+  for (const auto &edge : graph.Edges()) {
+    if (!first) out << ",\n"; first = false;
+    const char *status = "unknown";
     switch (edge.status) {
-    case TopologyEdge::Status::kValid:
-      status_str = "valid";
-      break;
-    case TopologyEdge::Status::kImplicitConvert:
-      status_str = "implicit_convert";
-      break;
-    case TopologyEdge::Status::kExplicitConvert:
-      status_str = "explicit_convert";
-      break;
-    case TopologyEdge::Status::kIncompatible:
-      status_str = "incompatible";
-      break;
-    case TopologyEdge::Status::kUnknown:
-      status_str = "unknown";
-      break;
+    case TopologyEdge::Status::kValid: status = "valid"; break;
+    case TopologyEdge::Status::kImplicitConvert: status = "implicit_convert"; break;
+    case TopologyEdge::Status::kExplicitConvert: status = "explicit_convert"; break;
+    case TopologyEdge::Status::kIncompatible: status = "incompatible"; break;
+    case TopologyEdge::Status::kUnknown: break;
     }
-    out << "    {\"id\": " << edge.id << ", \"source_node\": " << edge.source_node_id
-        << ", \"source_port\": " << edge.source_port_id
-        << ", \"target_node\": " << edge.target_node_id
-        << ", \"target_port\": " << edge.target_port_id << ", \"status\": \"" << status_str
-        << "\"}";
-    if (i + 1 < graph.Edges().size())
-      out << ",";
-    out << "\n";
+    out << "    {\"id\":" << edge.id << ",\"source_node\":" << edge.source_node_id
+        << ",\"source_port\":" << edge.source_port_id << ",\"target_node\":" << edge.target_node_id
+        << ",\"target_port\":" << edge.target_port_id << ",\"status\":" << quote(status)
+        << ",\"value\":" << quote(edge.value_label)
+        << ",\"relation\":" << quote(edge.relation) << ",\"conversion\":" << quote(edge.conversion_note)
+        << ",\"context_node_id\":" << edge.context_node_id << '}';
   }
-  out << "  ]\n";
-  out << "}\n";
+  out << "\n  ]\n}\n";
 }
 
 // ============================================================================

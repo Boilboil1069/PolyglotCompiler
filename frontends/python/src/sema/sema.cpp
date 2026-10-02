@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     sema.cpp
  * @brief    Python language frontend implementation
@@ -57,6 +58,7 @@ private:
   // ``int``, ``str``, ``print``, ``len``, ``range`` etc. are resolvable
   // during semantic analysis.
   void DeclareBuiltins() {
+    frontends::RegisterNativeBuiltins(Syms(), Types(), "python");
     core::SourceLoc builtin_loc{"<builtin>", 0, 0};
 
     // Built-in type names

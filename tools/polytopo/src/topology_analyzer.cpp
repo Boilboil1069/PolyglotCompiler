@@ -27,6 +27,11 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
   if (!module)
     return false;
 
+  graph_ = TopologyGraph{};
+  var_bindings_.clear();
+  external_nodes_.clear();
+  return_boundaries_.clear();
+  call_instances_.clear();
   graph_.module_name = module->filename;
   graph_.source_file = module->filename;
 
@@ -35,78 +40,27 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
     AnalyzeStatement(stmt);
   }
 
-  // Second pass: walk function/pipeline bodies to find data-flow edges.
-  // For each body, register the function's parameters into var_bindings_
-  // so that CALL argument references (e.g. `a`, `b`) can be traced back
-  // to the FUNC node's input ports, producing correct data-flow edges.
+  auto analyze = [&](const std::string &name, const auto &body) {
+    const auto *node = graph_.FindNodeByName(name);
+    if (!node) return;
+    const auto id = node->id;
+    var_bindings_.clear();
+    current_context_id_ = id;
+    BindBoundary(id);
+    AnalyzeBody(body, id);
+    current_context_id_ = 0;
+  };
   for (const auto &stmt : module->declarations) {
     if (auto func = std::dynamic_pointer_cast<ploy::FuncDecl>(stmt)) {
-      auto *node = graph_.FindNodeByName(func->name);
-      if (node) {
-        // Save and reset var_bindings_ per function scope
-        auto saved_bindings = std::move(var_bindings_);
-        var_bindings_.clear();
-        current_context_id_ = node->id;
-
-        // Bind each FUNC parameter to the node's input port
-        for (size_t i = 0; i < func->params.size() && i < node->inputs.size(); ++i) {
-          var_bindings_[func->params[i].name] = {node->id, node->inputs[i].id,
-                                                 node->inputs[i].type};
-        }
-
-        AnalyzeBody(func->body, node->id);
-
-        current_context_id_ = 0;
-        var_bindings_ = std::move(saved_bindings);
-      }
+      analyze(func->name, func->body);
     } else if (auto pipeline = std::dynamic_pointer_cast<ploy::PipelineDecl>(stmt)) {
-      auto *node = graph_.FindNodeByName("pipeline:" + pipeline->name);
-      if (node) {
-        auto saved_bindings = std::move(var_bindings_);
-        var_bindings_.clear();
-        current_context_id_ = node->id;
-        AnalyzeBody(pipeline->body, node->id);
-        current_context_id_ = 0;
-        var_bindings_ = std::move(saved_bindings);
-      }
-
-      // Analyze each FUNC stage inside the pipeline body
+      analyze("pipeline:" + pipeline->name, pipeline->body);
       for (const auto &body_stmt : pipeline->body) {
-        auto sub_func = std::dynamic_pointer_cast<ploy::FuncDecl>(body_stmt);
-        if (!sub_func)
-          continue;
-        auto *stage_node =
-            graph_.FindNodeByName("pipeline:" + pipeline->name + "::" + sub_func->name);
-        if (!stage_node)
-          continue;
-
-        auto saved_bindings2 = std::move(var_bindings_);
-        var_bindings_.clear();
-        current_context_id_ = stage_node->id;
-        for (size_t i = 0; i < sub_func->params.size() && i < stage_node->inputs.size(); ++i) {
-          var_bindings_[sub_func->params[i].name] = {stage_node->id, stage_node->inputs[i].id,
-                                                     stage_node->inputs[i].type};
-        }
-        AnalyzeBody(sub_func->body, stage_node->id);
-        current_context_id_ = 0;
-        var_bindings_ = std::move(saved_bindings2);
+        if (auto stage = std::dynamic_pointer_cast<ploy::FuncDecl>(body_stmt))
+          analyze("pipeline:" + pipeline->name + "::" + stage->name, stage->body);
       }
-    } else if (auto map_func = std::dynamic_pointer_cast<ploy::MapFuncDecl>(stmt)) {
-      auto *node = graph_.FindNodeByName("map:" + map_func->name);
-      if (node) {
-        auto saved_bindings = std::move(var_bindings_);
-        var_bindings_.clear();
-        current_context_id_ = node->id;
-
-        for (size_t i = 0; i < map_func->params.size() && i < node->inputs.size(); ++i) {
-          var_bindings_[map_func->params[i].name] = {node->id, node->inputs[i].id,
-                                                     node->inputs[i].type};
-        }
-
-        AnalyzeBody(map_func->body, node->id);
-        current_context_id_ = 0;
-        var_bindings_ = std::move(saved_bindings);
-      }
+    } else if (auto map = std::dynamic_pointer_cast<ploy::MapFuncDecl>(stmt)) {
+      analyze("map:" + map->name, map->body);
     }
   }
 
@@ -283,6 +237,7 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
     edge.target_node_id = tgt_node->id;
     edge.target_port_id = tgt_node->inputs[0].id;
     edge.origin = TopologyEdge::Origin::kLink;
+    edge.relation = "binding";
     edge.loc = link->loc;
     // Determine edge status based on available type information
     bool has_map_type = !link->body.empty();
@@ -380,7 +335,8 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
     edge.origin = TopologyEdge::Origin::kPipelineStage;
     edge.status = TopologyEdge::Status::kValid;
     edge.loc = tgt->loc;
-    edge.conversion_note = "pipeline_stage_order";
+    edge.conversion_note = "Declared stage order; no value transfer inferred";
+    edge.relation = "order";
     graph_.AddEdge(std::move(edge));
   }
 }
@@ -500,17 +456,38 @@ void TopologyAnalyzer::AnalyzeBodyStatement(const std::shared_ptr<ploy::Statemen
     if (ret->value) {
       auto result = AnalyzeExpression(ret->value, context_node_id);
       // Connect the return value to the context node's output port
-      auto *ctx = graph_.GetNode(context_node_id);
-      if (ctx && !ctx->outputs.empty()) {
-        ConnectEdge(result, context_node_id, ctx->outputs[0].id, ret->loc);
+      auto boundary = return_boundaries_.find(context_node_id);
+      if (boundary != return_boundaries_.end()) {
+        const auto *target = graph_.GetNode(boundary->second);
+        if (target && !target->inputs.empty())
+          ConnectEdge(result, target->id, target->inputs[0].id, ret->loc);
       }
     }
   } else if (auto if_stmt = std::dynamic_pointer_cast<ploy::IfStatement>(stmt)) {
-    if (if_stmt->condition) {
-      AnalyzeExpression(if_stmt->condition, context_node_id);
-    }
+    const auto condition = AnalyzeExpression(if_stmt->condition, context_node_id);
+    const auto before = var_bindings_;
     AnalyzeBody(if_stmt->then_body, context_node_id);
+    const auto then_values = var_bindings_;
+    var_bindings_ = before;
     AnalyzeBody(if_stmt->else_body, context_node_id);
+    const auto else_values = var_bindings_;
+    // Keep only names visible before the branch. A branch-local declaration
+    // cannot leak out, and differing values need an explicit alternatives node.
+    var_bindings_ = before;
+    for (const auto &[name, original] : before) {
+      auto left = then_values.find(name), right = else_values.find(name);
+      if (left == then_values.end() || right == else_values.end()) continue;
+      if (left->second.producer_port_id == right->second.producer_port_id) {
+        var_bindings_[name] = left->second;
+        continue;
+      }
+      const auto &a = left->second; const auto &b = right->second;
+      auto type = a.type == b.type ? a.type : core::Type::Any();
+      auto result = MakeExpressionNode("IF alternatives: " + name, TopologyNode::Kind::kOperation,
+          {{a.producer_node_id, a.producer_port_id, a.type},
+           {b.producer_node_id, b.producer_port_id, b.type}, condition}, type, if_stmt->loc);
+      var_bindings_[name] = {result.producer_node_id, result.producer_port_id, result.type};
+    }
   } else if (auto while_stmt = std::dynamic_pointer_cast<ploy::WhileStatement>(stmt)) {
     if (while_stmt->condition) {
       AnalyzeExpression(while_stmt->condition, context_node_id);
@@ -552,135 +529,228 @@ TopologyAnalyzer::ExprResult TopologyAnalyzer::AnalyzeExpression(
     // Variable reference: look up in bindings
     auto it = var_bindings_.find(ident->name);
     if (it != var_bindings_.end()) {
-      return {it->second.producer_node_id, it->second.producer_port_id, it->second.type};
+      return {it->second.producer_node_id, it->second.producer_port_id, it->second.type, ident->name};
     }
-    return {};
+    return MakeExpressionNode("unresolved: " + ident->name, TopologyNode::Kind::kValue, {},
+                              core::Type::Any(), ident->loc);
+  } else if (auto literal = std::dynamic_pointer_cast<ploy::Literal>(expr)) {
+    core::Type type = core::Type::Any();
+    switch (literal->kind) {
+    case ploy::Literal::Kind::kInteger: type = core::Type::Int(64, true); break;
+    case ploy::Literal::Kind::kFloat: type = core::Type::Float(64); break;
+    case ploy::Literal::Kind::kString: type = core::Type::String(); break;
+    case ploy::Literal::Kind::kBool: type = core::Type::Bool(); break;
+    case ploy::Literal::Kind::kNull: break;
+    }
+    return MakeExpressionNode(literal->value, TopologyNode::Kind::kValue, {}, type, literal->loc);
   } else if (auto binary = std::dynamic_pointer_cast<ploy::BinaryExpression>(expr)) {
-    AnalyzeExpression(binary->left, context_node_id);
-    AnalyzeExpression(binary->right, context_node_id);
-    return {};
+    if (binary->op == "=") {
+      auto result = AnalyzeExpression(binary->right, context_node_id);
+      if (auto name = std::dynamic_pointer_cast<ploy::Identifier>(binary->left)) {
+        var_bindings_[name->name] = {result.producer_node_id, result.producer_port_id, result.type};
+        result.value_name = name->name;
+      }
+      return result;
+    }
+    auto left = AnalyzeExpression(binary->left, context_node_id);
+    auto right = AnalyzeExpression(binary->right, context_node_id);
+    const auto &op = binary->op;
+    auto type = core::Type::Any();
+    const bool comparison = op == "==" || op == "!=" || op == "<" || op == ">" ||
+                            op == "<=" || op == ">=" || op == "AND" || op == "OR";
+    if (comparison) type = core::Type::Bool();
+    else if (left.type.kind == right.type.kind) type = left.type;
+    else if ((left.type.kind == core::TypeKind::kInt && right.type.kind == core::TypeKind::kFloat) ||
+             (left.type.kind == core::TypeKind::kFloat && right.type.kind == core::TypeKind::kInt))
+      type = core::Type::Float(64);
+    return MakeExpressionNode(op, TopologyNode::Kind::kOperation, {left, right}, type, binary->loc);
   } else if (auto unary = std::dynamic_pointer_cast<ploy::UnaryExpression>(expr)) {
-    return AnalyzeExpression(unary->operand, context_node_id);
+    auto operand = AnalyzeExpression(unary->operand, context_node_id);
+    auto type = unary->op == "NOT" || unary->op == "!" ? core::Type::Bool() : operand.type;
+    return MakeExpressionNode(unary->op, TopologyNode::Kind::kOperation, {operand}, type, unary->loc);
+  } else if (auto convert = std::dynamic_pointer_cast<ploy::ConvertExpression>(expr)) {
+    auto operand = AnalyzeExpression(convert->expr, context_node_id);
+    return MakeExpressionNode("CONVERT", TopologyNode::Kind::kConversion, {operand},
+                              ResolveType(convert->target_type), convert->loc);
+  } else if (auto named = std::dynamic_pointer_cast<ploy::NamedArgument>(expr)) {
+    return AnalyzeExpression(named->value, context_node_id);
   }
-
-  // Literals and other expressions do not produce topology edges
-  return {};
+  return MakeExpressionNode("unresolved expression", TopologyNode::Kind::kValue, {},
+                            core::Type::Any(), expr->loc);
 }
 
 TopologyAnalyzer::ExprResult TopologyAnalyzer::AnalyzeCrossLangCall(
     const std::shared_ptr<ploy::CrossLangCallExpression> &call, uint64_t context_node_id) {
-  std::string qualified = call->language + "::" + call->function;
-  uint64_t callee_id = FindOrCreateExternalNode(call->language, call->function, call->loc);
-
-  auto *callee = graph_.GetNode(callee_id);
-  if (!callee)
-    return {};
-
-  // Connect each argument to the callee's input ports
-  for (size_t i = 0; i < call->args.size(); ++i) {
-    auto arg_result = AnalyzeExpression(call->args[i], context_node_id);
-    if (arg_result.producer_node_id != 0 && i < callee->inputs.size()) {
-      ConnectEdge(arg_result, callee_id, callee->inputs[i].id, call->loc);
+  auto id = FindOrCreateExternalNode(call->language, call->function, call->loc);
+  // Each call is an instance; sharing a target would merge unrelated values.
+  id = CreateCallInstance(id, call->loc);
+  auto *instance = graph_.GetMutableNode(id);
+  if (instance->description == "Signature unresolved") {
+    instance->inputs.clear();
+    for (size_t i = 0; i < call->args.size(); ++i) {
+      Port port;
+      port.id = graph_.AllocPortId();
+      port.name = "argument " + std::to_string(i + 1) + " ?";
+      port.type = core::Type::Any();
+      port.language = call->language;
+      port.index = static_cast<int>(i);
+      instance->inputs.push_back(port);
     }
   }
-
-  // Return the callee's output port as the expression result
-  if (!callee->outputs.empty()) {
-    return {callee_id, callee->outputs[0].id, callee->outputs[0].type};
+  auto inputs = graph_.GetNode(id)->inputs;
+  for (size_t i = 0; i < call->args.size(); ++i) {
+    auto result = AnalyzeExpression(call->args[i], context_node_id);
+    size_t slot = i;
+    if (auto named = std::dynamic_pointer_cast<ploy::NamedArgument>(call->args[i])) {
+      slot = inputs.size();
+      for (size_t j = 0; j < inputs.size(); ++j)
+        if (inputs[j].name == named->name) slot = j;
+    }
+    if (slot < inputs.size()) ConnectEdge(result, id, inputs[slot].id, call->loc);
   }
-  return {callee_id, 0, core::Type::Any()};
+  const auto *node = graph_.GetNode(id);
+  if (!node->outputs.empty()) return {id, node->outputs[0].id, node->outputs[0].type};
+  return {id, 0, core::Type::Any()};
 }
 
 TopologyAnalyzer::ExprResult TopologyAnalyzer::AnalyzeNewExpression(
-    const std::shared_ptr<ploy::NewExpression> &new_expr, uint64_t context_node_id) {
-  std::string qualified = new_expr->language + "::" + new_expr->class_name + "::new";
-  uint64_t ctor_id =
-      FindOrCreateExternalNode(new_expr->language, new_expr->class_name + "::new", new_expr->loc);
-
-  auto *ctor = graph_.GetMutableNode(ctor_id);
-  if (ctor) {
-    ctor->kind = TopologyNode::Kind::kConstructor;
-
-    // Connect constructor arguments
-    for (size_t i = 0; i < new_expr->args.size(); ++i) {
-      auto arg_result = AnalyzeExpression(new_expr->args[i], context_node_id);
-      if (arg_result.producer_node_id != 0 && i < ctor->inputs.size()) {
-        ConnectEdge(arg_result, ctor_id, ctor->inputs[i].id, new_expr->loc);
-      }
-    }
-
-    // The constructor output is a class instance
-    if (!ctor->outputs.empty()) {
-      return {ctor_id, ctor->outputs[0].id,
-              core::Type{core::TypeKind::kClass, new_expr->class_name}};
-    }
-  }
-  return {ctor_id, 0, core::Type{core::TypeKind::kClass, new_expr->class_name}};
+    const std::shared_ptr<ploy::NewExpression> &expr, uint64_t context_node_id) {
+  auto call = std::make_shared<ploy::CrossLangCallExpression>();
+  call->language = expr->language;
+  call->function = expr->class_name + "::new";
+  call->args = expr->args;
+  call->loc = expr->loc;
+  auto result = AnalyzeCrossLangCall(call, context_node_id);
+  auto *node = graph_.GetMutableNode(result.producer_node_id);
+  node->kind = TopologyNode::Kind::kConstructor;
+  result.type = core::Type{core::TypeKind::kClass, expr->class_name};
+  if (!node->outputs.empty()) node->outputs[0].type = result.type;
+  return result;
 }
 
 TopologyAnalyzer::ExprResult TopologyAnalyzer::AnalyzeMethodCall(
-    const std::shared_ptr<ploy::MethodCallExpression> &method, uint64_t context_node_id) {
-  // Resolve the object (first argument)
-  auto obj_result = AnalyzeExpression(method->object, context_node_id);
-
-  std::string qualified = method->language + "::method::" + method->method_name;
-  uint64_t method_id =
-      FindOrCreateExternalNode(method->language, "method::" + method->method_name, method->loc);
-
-  auto *method_node = graph_.GetMutableNode(method_id);
-  if (method_node) {
-    method_node->kind = TopologyNode::Kind::kMethod;
-
-    // Connect object as first input
-    if (obj_result.producer_node_id != 0 && !method_node->inputs.empty()) {
-      ConnectEdge(obj_result, method_id, method_node->inputs[0].id, method->loc);
-    }
-
-    // Connect method arguments
-    for (size_t i = 0; i < method->args.size(); ++i) {
-      auto arg_result = AnalyzeExpression(method->args[i], context_node_id);
-      if (arg_result.producer_node_id != 0 && (i + 1) < method_node->inputs.size()) {
-        ConnectEdge(arg_result, method_id, method_node->inputs[i + 1].id, method->loc);
-      }
-    }
-
-    if (!method_node->outputs.empty()) {
-      return {method_id, method_node->outputs[0].id, method_node->outputs[0].type};
-    }
-  }
-  return {method_id, 0, core::Type::Any()};
+    const std::shared_ptr<ploy::MethodCallExpression> &expr, uint64_t context_node_id) {
+  auto call = std::make_shared<ploy::CrossLangCallExpression>();
+  call->language = expr->language;
+  call->function = "method::" + expr->method_name;
+  call->args = {expr->object};
+  call->args.insert(call->args.end(), expr->args.begin(), expr->args.end());
+  call->loc = expr->loc;
+  auto result = AnalyzeCrossLangCall(call, context_node_id);
+  graph_.GetMutableNode(result.producer_node_id)->kind = TopologyNode::Kind::kMethod;
+  return result;
 }
 
 TopologyAnalyzer::ExprResult TopologyAnalyzer::AnalyzeCallExpression(
     const std::shared_ptr<ploy::CallExpression> &call, uint64_t context_node_id) {
-  // Resolve callee name
-  std::string callee_name;
-  if (auto ident = std::dynamic_pointer_cast<ploy::Identifier>(call->callee)) {
-    callee_name = ident->name;
-  } else if (auto qident = std::dynamic_pointer_cast<ploy::QualifiedIdentifier>(call->callee)) {
-    callee_name = qident->qualifier + "::" + qident->name;
+  std::string name;
+  if (auto ident = std::dynamic_pointer_cast<ploy::Identifier>(call->callee)) name = ident->name;
+  if (auto ident = std::dynamic_pointer_cast<ploy::QualifiedIdentifier>(call->callee))
+    name = ident->qualifier + "::" + ident->name;
+  const auto *prototype = graph_.FindNodeByName(name);
+  if (!prototype) {
+    auto external = std::make_shared<ploy::CrossLangCallExpression>();
+    external->language = "poly";
+    external->function = name.empty() ? "unresolved call" : name;
+    external->args = call->args;
+    external->loc = call->loc;
+    return AnalyzeCrossLangCall(external, context_node_id);
   }
-
-  if (callee_name.empty())
-    return {};
-
-  // Find the callee node in the graph
-  const auto *callee = graph_.FindNodeByName(callee_name);
-  if (!callee)
-    return {};
-
-  // Connect arguments to the callee's input ports
+  auto id = CreateCallInstance(prototype->id, call->loc);
+  auto inputs = graph_.GetNode(id)->inputs;
   for (size_t i = 0; i < call->args.size(); ++i) {
-    auto arg_result = AnalyzeExpression(call->args[i], context_node_id);
-    if (arg_result.producer_node_id != 0 && i < callee->inputs.size()) {
-      ConnectEdge(arg_result, callee->id, callee->inputs[i].id, call->loc);
+    auto result = AnalyzeExpression(call->args[i], context_node_id);
+    size_t slot = i;
+    if (auto named = std::dynamic_pointer_cast<ploy::NamedArgument>(call->args[i])) {
+      slot = inputs.size();
+      for (size_t j = 0; j < inputs.size(); ++j)
+        if (inputs[j].name == named->name) slot = j;
     }
+    if (slot < inputs.size()) ConnectEdge(result, id, inputs[slot].id, call->loc);
   }
+  const auto *node = graph_.GetNode(id);
+  if (!node->outputs.empty()) return {id, node->outputs[0].id, node->outputs[0].type};
+  return {id, 0, core::Type::Any()};
+}
 
-  if (!callee->outputs.empty()) {
-    return {callee->id, callee->outputs[0].id, callee->outputs[0].type};
+void TopologyAnalyzer::BindBoundary(uint64_t context_node_id) {
+  const auto context = *graph_.GetNode(context_node_id);
+  if (!context.inputs.empty()) {
+    TopologyNode input;
+    input.name = context.name + "::inputs";
+    input.display_name = context.name + " · inputs";
+    input.kind = TopologyNode::Kind::kBoundary;
+    input.language = "poly";
+    input.origin = TopologyNode::Origin::kCall;
+    input.context_node_id = context_node_id;
+    input.loc = context.loc;
+    input.outputs = context.inputs;
+    for (auto &p : input.outputs) p.direction = Port::Direction::kOutput;
+    const auto id = graph_.AddNode(std::move(input));
+    for (const auto &p : graph_.GetNode(id)->outputs) var_bindings_[p.name] = {id, p.id, p.type};
   }
-  return {callee->id, 0, core::Type::Any()};
+  if (!context.outputs.empty() && context.outputs[0].type.kind != core::TypeKind::kVoid) {
+    TopologyNode output;
+    output.name = context.name + "::result";
+    output.display_name = context.name + " · result";
+    output.kind = TopologyNode::Kind::kBoundary;
+    output.language = "poly";
+    output.origin = TopologyNode::Origin::kCall;
+    output.context_node_id = context_node_id;
+    output.loc = context.loc;
+    output.inputs = context.outputs;
+    for (auto &p : output.inputs) p.direction = Port::Direction::kInput;
+    return_boundaries_[context_node_id] = graph_.AddNode(std::move(output));
+  }
+}
+
+uint64_t TopologyAnalyzer::CreateCallInstance(uint64_t prototype, const core::SourceLoc &loc) {
+  auto node = *graph_.GetNode(prototype);
+  // The first external node is already a call instance; LINK and declaration
+  // nodes remain separate so their binding edges cannot be mistaken for values.
+  auto &count = call_instances_[node.name];
+  if (node.origin == TopologyNode::Origin::kCall && count++ == 0) return prototype;
+  node.display_name = node.display_name.empty() ? node.name : node.display_name;
+  node.name += "@" + std::to_string(loc.line) + ":" + std::to_string(++count);
+  if (node.definition_loc.file.empty() && node.origin != TopologyNode::Origin::kCall)
+    node.definition_loc = node.loc;
+  node.loc = loc;
+  node.origin = TopologyNode::Origin::kCall;
+  node.context_node_id = current_context_id_;
+  if (node.description != "Signature unresolved")
+    node.description = "Call instance; inputs are argument values and output is its result";
+  return graph_.AddNode(std::move(node));
+}
+
+TopologyAnalyzer::ExprResult TopologyAnalyzer::MakeExpressionNode(
+    const std::string &label, TopologyNode::Kind kind, const std::vector<ExprResult> &args,
+    const core::Type &type, const core::SourceLoc &loc) {
+  TopologyNode node;
+  node.name = "expr:" + std::to_string(graph_.NodeCount()) + ":" + label;
+  node.display_name = label;
+  node.language = "poly";
+  node.kind = kind;
+  node.origin = TopologyNode::Origin::kCall;
+  node.context_node_id = current_context_id_;
+  node.loc = loc;
+  for (size_t i = 0; i < args.size(); ++i) {
+    Port p;
+    p.name = args.size() == 1 ? "value" : (i == 0 ? "left" : (i == 1 ? "right" : "condition"));
+    p.type = args[i].type;
+    p.language = "poly";
+    p.index = static_cast<int>(i);
+    node.inputs.push_back(p);
+  }
+  Port out;
+  out.name = "value";
+  out.direction = Port::Direction::kOutput;
+  out.type = type;
+  out.language = "poly";
+  node.outputs.push_back(out);
+  const auto id = graph_.AddNode(std::move(node));
+  for (size_t i = 0; i < args.size(); ++i)
+    ConnectEdge(args[i], id, graph_.GetNode(id)->inputs[i].id, loc);
+  return {id, graph_.GetNode(id)->outputs[0].id, type};
 }
 
 // ============================================================================
@@ -693,15 +763,19 @@ core::Type TopologyAnalyzer::ResolveType(const std::shared_ptr<ploy::TypeNode> &
 
   if (auto simple = std::dynamic_pointer_cast<ploy::SimpleType>(type_node)) {
     if (simple->name == "INT" || simple->name == "int")
-      return core::Type::Int();
+      return core::Type::Int(64, true);
     if (simple->name == "FLOAT" || simple->name == "float")
-      return core::Type::Float();
+      return core::Type::Float(64);
     if (simple->name == "BOOL" || simple->name == "bool")
       return core::Type::Bool();
     if (simple->name == "STRING" || simple->name == "string")
       return core::Type::String();
     if (simple->name == "VOID" || simple->name == "void")
       return core::Type::Void();
+    if (simple->name == "i32" || simple->name == "i64" || simple->name == "INT32" || simple->name == "INT64")
+      return core::Type::Int(simple->name == "i32" || simple->name == "INT32" ? 32 : 64, true);
+    if (simple->name == "f32" || simple->name == "f64" || simple->name == "FLOAT32" || simple->name == "FLOAT64")
+      return core::Type::Float(simple->name == "f32" || simple->name == "FLOAT32" ? 32 : 64);
     return core::Type::Any();
   } else if (auto qualified = std::dynamic_pointer_cast<ploy::QualifiedType>(type_node)) {
     core::Type t;
@@ -769,6 +843,7 @@ uint64_t TopologyAnalyzer::FindOrCreateExternalNode(const std::string &language,
     }
   }
   if (sig && sig->param_count_known) {
+    node.definition_loc = sig->defined_at;
     for (size_t i = 0; i < sig->param_types.size(); ++i) {
       Port port;
       port.name = i < sig->param_names.size() ? sig->param_names[i] : "arg" + std::to_string(i);
@@ -786,6 +861,7 @@ uint64_t TopologyAnalyzer::FindOrCreateExternalNode(const std::string &language,
     ret_port.index = 0;
     node.outputs.push_back(std::move(ret_port));
   } else {
+    node.description = "Signature unresolved";
     // Unknown signature: single variadic input + single output
     Port in;
     in.name = "args";
@@ -826,6 +902,7 @@ void TopologyAnalyzer::ConnectEdge(const ExprResult &source, uint64_t target_nod
   edge.target_node_id = target_node_id;
   edge.target_port_id = target_port_id;
   edge.status = TopologyEdge::Status::kUnknown;
+  edge.value_label = source.value_name;
   edge.loc = loc;
   edge.context_node_id = current_context_id_;
 

@@ -21,6 +21,21 @@ using namespace internal;
 
 void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
                                   std::vector<std::uint8_t> &body) {
+  if (auto *constant = dynamic_cast<ir::ConstantInstruction *>(inst.get())) {
+    const auto kind = constant->type.kind;
+    if (constant->type.IsFloat()) {
+      body.push_back(kind == ir::IRTypeKind::kF32 ? kOpF32Const : kOpF64Const);
+      const unsigned size = kind == ir::IRTypeKind::kF32 ? 4 : 8;
+      for (unsigned i = 0; i < size; ++i) body.push_back((constant->bits >> (8 * i)) & 255);
+    } else if (kind == ir::IRTypeKind::kI64) {
+      body.push_back(kOpI64Const);
+      EmitI64Leb128(body, static_cast<std::int64_t>(constant->bits));
+    } else {
+      body.push_back(kOpI32Const);
+      EmitI32Leb128(body, static_cast<std::int32_t>(constant->bits));
+    }
+    return;
+  }
   // Binary instructions
   if (auto *bin = dynamic_cast<ir::BinaryInstruction *>(inst.get())) {
     using Op = ir::BinaryInstruction::Op;

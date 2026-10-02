@@ -52,10 +52,22 @@ uint64_t TopologyGraph::AddNode(TopologyNode node) {
   // Assign port ids
   for (auto &port : node.inputs) {
     port.language = CanonicalPolyLanguage(std::move(port.language));
+    // These frontends map their scalar float annotation to the native f64 ABI.
+    // Preserve genuinely unresolved/Any types instead of guessing a width.
+    if (port.type.kind == core::TypeKind::kFloat && port.type.bit_width == 0 &&
+        (port.language == "poly" || port.language == "python" ||
+         port.language == "javascript" || port.language == "ruby"))
+      port.type = core::Type::Float(64);
     port.id = AllocPortId();
   }
   for (auto &port : node.outputs) {
     port.language = CanonicalPolyLanguage(std::move(port.language));
+    // These frontends map their scalar float annotation to the native f64 ABI.
+    // Preserve genuinely unresolved/Any types instead of guessing a width.
+    if (port.type.kind == core::TypeKind::kFloat && port.type.bit_width == 0 &&
+        (port.language == "poly" || port.language == "python" ||
+         port.language == "javascript" || port.language == "ruby"))
+      port.type = core::Type::Float(64);
     port.id = AllocPortId();
   }
 

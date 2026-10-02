@@ -38,22 +38,6 @@ bool IsImmediate(const std::string &name) {
   return end && end != name.c_str() && *end == '\0';
 }
 
-bool IsLiteralConstant(const std::string &name) {
-  // IRBuilder names integer literals as c<N> and float literals as cf<N>.
-  if (name.size() < 2 || name[0] != 'c')
-    return false;
-  size_t start = 1;
-  if (name[1] == 'f')
-    start = 2; // float prefix "cf"
-  if (start >= name.size())
-    return false;
-  for (size_t i = start; i < name.size(); ++i) {
-    if (!std::isdigit(static_cast<unsigned char>(name[i])))
-      return false;
-  }
-  return true;
-}
-
 bool IsDefined(const std::string &name, const std::unordered_set<std::string> &defs,
                const std::unordered_set<std::string> *extra = nullptr) {
   if (name.empty())
@@ -61,8 +45,6 @@ bool IsDefined(const std::string &name, const std::unordered_set<std::string> &d
   if (name == "undef")
     return true; // SSA undef placeholder
   if (IsImmediate(name))
-    return true;
-  if (IsLiteralConstant(name))
     return true;
   if (defs.count(name) > 0)
     return true;
@@ -385,7 +367,8 @@ bool Verify(const Function &func, std::string *msg) {
 
 // Internal implementation that accepts optional external definitions (globals, function names).
 static bool VerifyImpl(const Function &func, const DataLayout *layout,
-                       const std::unordered_set<std::string> *extra_defs, std::string *msg) {
+                       const std::unordered_set<std::string> *extra_defs,
+                       const std::unordered_map<std::string, IRType> *extra_types, std::string *msg) {
   // Skip verification for functions with no blocks — these are either
   // forward declarations or external function stubs that will be resolved
   // at link time. Only verify functions that have a body.
@@ -570,6 +553,7 @@ static bool VerifyImpl(const Function &func, const DataLayout *layout,
   // Collect definitions (params are treated as pre-defined names with unknown type)
   std::unordered_set<std::string> defs(func.params.begin(), func.params.end());
   std::unordered_map<std::string, IRType> types;
+  if (extra_types) types = *extra_types;
   for (size_t i = 0; i < func.params.size(); ++i) {
     IRType param_ty = (i < func.param_types.size()) ? func.param_types[i] : IRType::Invalid();
     types[func.params[i]] = param_ty;
@@ -691,6 +675,7 @@ static bool VerifyImpl(const Function &func, const DataLayout *layout,
           //  - "undef" incomings (from paths where the value was never defined)
           //  - Invalid types (phi or incoming type is unknown/unset)
           bool phi_type_ok = inc.second == "undef" || inc_ty.SameShape(phi->type) ||
+                             (IsImmediate(inc.second) && phi->type.IsInteger()) ||
                              inc_ty.kind == IRTypeKind::kInvalid ||
                              phi->type.kind == IRTypeKind::kInvalid;
           if (!phi_type_ok) {
@@ -978,23 +963,26 @@ static bool VerifyImpl(const Function &func, const DataLayout *layout,
 }
 
 bool Verify(const Function &func, const DataLayout *layout, std::string *msg) {
-  return VerifyImpl(func, layout, nullptr, msg);
+  return VerifyImpl(func, layout, nullptr, nullptr, msg);
 }
 
 bool Verify(const IRContext &ctx, std::string *msg) {
   // Collect global variable and function names as externally-defined symbols
   // that may be referenced as operands inside function bodies.
   std::unordered_set<std::string> external_defs;
+  std::unordered_map<std::string, IRType> external_types;
   for (auto &gv : ctx.Globals()) {
-    if (gv && !gv->name.empty())
+    if (gv && !gv->name.empty()) {
       external_defs.insert(gv->name);
+      external_types.emplace(gv->name, IRType::Pointer(gv->type));
+    }
   }
   for (auto &fn : ctx.Functions()) {
     if (fn && !fn->name.empty())
       external_defs.insert(fn->name);
   }
   for (auto &fn : ctx.Functions()) {
-    if (!VerifyImpl(*fn, &ctx.Layout(), &external_defs, msg))
+    if (!VerifyImpl(*fn, &ctx.Layout(), &external_defs, &external_types, msg))
       return false;
   }
   return true;

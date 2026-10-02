@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     lowering.cpp
  * @brief    Poly language frontend implementation
@@ -1384,6 +1385,9 @@ PloyLowering::EvalResult PloyLowering::LowerLiteral(const std::shared_ptr<Litera
     if (str_val.size() >= 2 && str_val.front() == '"' && str_val.back() == '"') {
       str_val = str_val.substr(1, str_val.size() - 2);
     }
+    str_val = DecodePrintlnLiteral(str_val, [&](const std::string &message) {
+      diagnostics_.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering, message);
+    });
     std::string sym = builder_.MakeStringLiteral(str_val, "str");
     return {sym, ir::IRType::Pointer(ir::IRType::I8())};
   }
@@ -1667,9 +1671,11 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
     const std::shared_ptr<CallExpression> &call) {
   // Lower arguments
   std::vector<std::string> arg_names;
+  std::vector<ir::IRType> arg_types;
   for (const auto &arg : call->args) {
     EvalResult a = LowerExpression(arg);
     arg_names.push_back(a.value);
+    arg_types.push_back(a.type);
   }
 
   // Get callee name
@@ -1701,6 +1707,7 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
     const auto &param_defaults = sig_it->second.param_default_values;
     const size_t total = param_names.size();
     std::vector<std::string> reordered(total);
+    std::vector<ir::IRType> reordered_types(total);
     std::vector<bool> placed(total, false);
 
     // First pass: route named arguments to their declared slot.
@@ -1710,6 +1717,7 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
         for (size_t j = 0; j < total; ++j) {
           if (param_names[j] == lbl_it->second) {
             reordered[j] = arg_names[i];
+            reordered_types[j] = arg_types[i];
             placed[j] = true;
             break;
           }
@@ -1725,6 +1733,7 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
           ++pos;
         if (pos < total) {
           reordered[pos] = arg_names[i];
+          reordered_types[pos] = arg_types[i];
           placed[pos] = true;
           ++pos;
         }
@@ -1735,10 +1744,17 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
       if (!placed[j] && j < param_defaults.size() && param_defaults[j]) {
         EvalResult def = LowerExpression(param_defaults[j]);
         reordered[j] = def.value;
+        reordered_types[j] = def.type;
         placed[j] = true;
       }
     }
     arg_names = reordered;
+    arg_types = reordered_types;
+  }
+
+  if (const auto *api = frontends::FindNativeBuiltin(callee_name)) {
+    auto inst = frontends::EmitNativeBuiltin(*api, arg_names, arg_types, builder_, ir_ctx_, diagnostics_, call->loc);
+    return inst ? EvalResult{inst->name, inst->type} : EvalResult{"", ir::IRType::Invalid()};
   }
 
   // Resolve the return type from sema's known signatures. In the documented

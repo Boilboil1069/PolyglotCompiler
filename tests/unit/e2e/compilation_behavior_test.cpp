@@ -242,7 +242,7 @@ TEST_CASE("Behavior: x86_64 object code has .text with non-zero bytes", "[behavi
 // arm64 backend output correctness
 // ============================================================================
 
-TEST_CASE("Behavior: arm64 assembly contains function label and ret", "[behavior][arm64][asm]") {
+TEST_CASE("Behavior: arm64 assembly contains function label and native encoding", "[behavior][arm64][asm]") {
   ir::IRContext ctx;
   auto fn = ctx.CreateFunction("arm_add", ir::IRType::I64(),
                                {{"a", ir::IRType::I64()}, {"b", ir::IRType::I64()}});
@@ -261,8 +261,14 @@ TEST_CASE("Behavior: arm64 assembly contains function label and ret", "[behavior
   std::string asm_text = target.EmitAssembly();
 
   REQUIRE(!asm_text.empty());
-  REQUIRE(asm_text.find("arm_add:") != std::string::npos);
-  REQUIRE(asm_text.find("ret") != std::string::npos);
+  REQUIRE(asm_text.find("\"arm_add\":") != std::string::npos);
+  REQUIRE(asm_text.find(".byte") != std::string::npos);
+  const auto mc = target.EmitObjectCode();
+  REQUIRE_FALSE(mc.sections.empty());
+  const auto &code = mc.sections.front().data;
+  REQUIRE(code.size() >= 4);
+  REQUIRE(std::vector<std::uint8_t>(code.end() - 4, code.end()) ==
+          std::vector<std::uint8_t>{0xc0, 0x03, 0x5f, 0xd6});
 }
 
 // ============================================================================

@@ -2002,8 +2002,12 @@ std::shared_ptr<Statement> RustParser::ParseStatement(bool allow_trailing_expr) 
   expr_stmt->loc = current_.loc;
   expr_stmt->expr = ParseExpression();
   expr_stmt->has_semicolon = MatchSymbol(";");
+  const bool block_expression = std::dynamic_pointer_cast<IfExpression>(expr_stmt->expr) ||
+                                std::dynamic_pointer_cast<WhileExpression>(expr_stmt->expr) ||
+                                std::dynamic_pointer_cast<BlockExpression>(expr_stmt->expr);
+  if (block_expression && !IsSymbol("}")) expr_stmt->has_semicolon = true;
   if (!expr_stmt->has_semicolon) {
-    if (!allow_trailing_expr || !IsSymbol("}")) {
+    if (!block_expression && (!allow_trailing_expr || !IsSymbol("}"))) {
       diagnostics_.Report(current_.loc, "Expected ';'");
     }
   }

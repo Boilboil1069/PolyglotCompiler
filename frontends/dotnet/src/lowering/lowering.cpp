@@ -1,3 +1,5 @@
+#include "frontends/common/include/native_builtins.h"
+#include "frontends/common/include/native_string_literal.h"
 /**
  * @file     lowering.cpp
  * @brief    .NET/C# language frontend implementation
@@ -95,7 +97,14 @@ struct LoweringContext {
   ir::IRContext &ir_ctx;
   frontends::Diagnostics &diags;
   std::unordered_map<Name, EnvEntry> env;
+  std::unordered_map<Name, Name> local_addresses;
   std::string current_class;
+  struct StaticSignature {
+    ir::IRType result;
+    std::vector<ir::IRType> params;
+    bool ambiguous{false};
+  };
+  std::unordered_map<std::string, StaticSignature> static_methods;
   ir::IRBuilder builder;
   std::shared_ptr<ir::Function> fn;
   bool terminated{false};
@@ -248,8 +257,14 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
 
   if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
     auto it = lc.env.find(id->name);
-    if (it != lc.env.end() && !it->second.value.empty())
+    if (it != lc.env.end() && !it->second.value.empty()) {
+      auto address = lc.local_addresses.find(id->name);
+      if (address != lc.local_addresses.end()) {
+        auto load = lc.builder.MakeLoad(address->second, it->second.type);
+        return {load->name, load->type};
+      }
       return {it->second.value, it->second.type};
+    }
     if (it != lc.env.end()) {
       lc.diags.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
                            "use of an uninitialized C# local in IR lowering: " + id->name);
@@ -283,7 +298,18 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     }
 
     if ((!v.empty() && v[0] == '"') || v.starts_with("@\"")) {
-      auto name = lc.builder.MakeStringLiteral(v, "csstr");
+      const bool raw = v.starts_with("@\"");
+      std::string body = v.substr(raw ? 2 : 1, v.size() - (raw ? 3 : 2));
+      if (raw) {
+        for (std::size_t i = 0; (i = body.find("\"\"", i)) != std::string::npos; ++i)
+          body.erase(i, 1);
+      }
+      std::string bytes, error;
+      if (!frontends::DecodeNativeString(body, raw, false, bytes, error)) {
+        lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering, error);
+        return {};
+      }
+      auto name = lc.builder.MakeStringLiteral(bytes, "csstr");
       return {name, ir::IRType::Pointer(ir::IRType::I8())};
     }
 
@@ -321,8 +347,11 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     if (unary->op == "-") {
       const bool fp = operand.type.kind == ir::IRTypeKind::kF32 ||
                       operand.type.kind == ir::IRTypeKind::kF64;
-      auto neg = lc.builder.MakeBinary(fp ? ir::BinaryInstruction::Op::kFSub
-                                          : ir::BinaryInstruction::Op::kSub,
+      if (fp) {
+        auto neg = lc.builder.MakeFloatNegate(operand.value, operand.type, "");
+        return {neg->name, operand.type};
+      }
+      auto neg = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kSub,
                                        "0", operand.value, "");
       neg->type = operand.type;
       return {neg->name, operand.type};
@@ -356,7 +385,9 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
                                    id->name);
           return {};
         }
-        lc.env[id->name] = {rhs.value, rhs.type};
+        if (lc.local_addresses.count(id->name))
+          lc.builder.MakeStore(lc.local_addresses.at(id->name), rhs.value);
+        else lc.env[id->name] = {rhs.value, rhs.type};
       } else {
         lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
                              "C# lowering only supports identifier assignment targets");
@@ -382,7 +413,9 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
       auto result = lc.builder.MakeBinary(op, left.value, right.value, "");
       result->type = left.type;
       if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
-        lc.env[id->name] = {result->name, left.type};
+        if (lc.local_addresses.count(id->name))
+          lc.builder.MakeStore(lc.local_addresses.at(id->name), result->name);
+        else lc.env[id->name] = {result->name, left.type};
       } else {
         lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
                              "C# lowering only supports identifier compound-assignment targets");
@@ -398,9 +431,32 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     }
 
     if (bin->op == "&&" || bin->op == "||") {
-      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
-                           "C# short-circuit operators require control-flow lowering");
-      return {};
+      auto left = EvalExpr(bin->left, lc);
+      if (left.type.kind != ir::IRTypeKind::kI1) {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "C# logical operands must be boolean");
+        return {};
+      }
+      auto *left_block = lc.builder.GetInsertPoint().get();
+      auto rhs_block = lc.builder.CreateBlock("logical.rhs");
+      auto merge_block = lc.builder.CreateBlock("logical.end");
+      if (bin->op == "&&")
+        lc.builder.MakeCondBranch(left.value, rhs_block.get(), merge_block.get());
+      else
+        lc.builder.MakeCondBranch(left.value, merge_block.get(), rhs_block.get());
+      lc.builder.SetInsertPoint(rhs_block);
+      auto right = EvalExpr(bin->right, lc);
+      if (right.type.kind != ir::IRTypeKind::kI1) {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "C# logical operands must be boolean");
+        return {};
+      }
+      auto *right_end = lc.builder.GetInsertPoint().get();
+      lc.builder.MakeBranch(merge_block.get());
+      lc.builder.SetInsertPoint(merge_block);
+      auto phi = lc.builder.MakePhi(ir::IRType::I1(),
+          {{left_block, left.value}, {right_end, right.value}}, "logical.value");
+      return {phi->name, ir::IRType::I1()};
     }
 
     auto left = EvalExpr(bin->left, lc);
@@ -427,11 +483,13 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
 
   if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {
     std::vector<std::string> arg_values;
+    std::vector<ir::IRType> arg_types;
     for (auto &arg : call->args) {
       auto r = EvalExpr(arg, lc);
       if (r.type.kind == ir::IRTypeKind::kInvalid)
         return {};
       arg_values.push_back(r.value);
+      arg_types.push_back(r.type);
     }
 
     std::string callee_name;
@@ -449,6 +507,21 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
       return {inst->name, inst->type};
     }
 
+    if (const auto *api = frontends::FindNativeBuiltin(callee_name)) {
+      auto inst = frontends::EmitNativeBuiltin(*api, arg_values, arg_types, lc.builder, lc.ir_ctx, lc.diags, call->loc);
+      if (!inst) return {};
+      return {inst->name, inst->type};
+    }
+    std::string resolved = callee_name;
+    const auto dot = resolved.rfind('.');
+    if (dot != std::string::npos) resolved.replace(dot, 1, "::");
+    else if (!lc.current_class.empty()) resolved = lc.current_class + "::" + resolved;
+    const auto signature = lc.static_methods.find(resolved);
+    if (signature != lc.static_methods.end() && !signature->second.ambiguous &&
+        signature->second.params.size() == arg_values.size()) {
+      auto inst = lc.builder.MakeCall(resolved, arg_values, signature->second.result);
+      return {inst->name, inst->type};
+    }
     lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
                          "C# call lowering requires a resolved method signature: " + callee_name);
     return {};
@@ -547,6 +620,9 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
       auto vt = var->type ? ToIRType(var->type, lc.diags, var->loc) : init_val.type;
       if (vt.kind == ir::IRTypeKind::kInvalid)
         return false;
+      auto storage = lc.builder.MakeAlloca(vt);
+      lc.builder.MakeStore(storage->name, init_val.value);
+      lc.local_addresses[var->name] = storage->name;
       lc.env[var->name] = {init_val.value, vt};
     } else {
       auto vt = ToIRType(var->type, lc.diags, var->loc);
@@ -578,15 +654,93 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto if_stmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
-    lc.diags.ReportError(if_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
-                         "C# branch lowering requires local-value SSA/phi construction");
-    return false;
+    auto cond = EvalExpr(if_stmt->condition, lc);
+    if (cond.type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+
+    auto *then_block = lc.fn->CreateBlock("if.then");
+    auto *else_block = if_stmt->else_body ? lc.fn->CreateBlock("if.else") : nullptr;
+    auto *merge_block = lc.fn->CreateBlock("if.end");
+
+    lc.builder.MakeCondBranch(cond.value, then_block, else_block ? else_block : merge_block);
+
+    // Then block
+    for (auto &bb : lc.fn->blocks) {
+      if (bb.get() == then_block) {
+        lc.builder.SetInsertPoint(bb);
+        break;
+      }
+    }
+    lc.terminated = false;
+    LowerStmt(if_stmt->then_body, lc);
+    bool then_term = lc.terminated;
+    if (!then_term)
+      lc.builder.MakeBranch(merge_block);
+
+    // Else block
+    bool else_term = false;
+    if (else_block) {
+      for (auto &bb : lc.fn->blocks) {
+        if (bb.get() == else_block) {
+          lc.builder.SetInsertPoint(bb);
+          break;
+        }
+      }
+      lc.terminated = false;
+      LowerStmt(if_stmt->else_body, lc);
+      else_term = lc.terminated;
+      if (!else_term)
+        lc.builder.MakeBranch(merge_block);
+    }
+
+    // Merge block
+    for (auto &bb : lc.fn->blocks) {
+      if (bb.get() == merge_block) {
+        lc.builder.SetInsertPoint(bb);
+        break;
+      }
+    }
+    lc.terminated = else_block && then_term && else_term;
+    if (lc.terminated) lc.builder.MakeUnreachable();
+    return true;
   }
 
   if (auto while_stmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
-    lc.diags.ReportError(while_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
-                         "C# loop lowering requires storage/SSA semantics for mutable locals");
-    return false;
+    auto *cond_block = lc.fn->CreateBlock("while.cond");
+    auto *body_block = lc.fn->CreateBlock("while.body");
+    auto *exit_block = lc.fn->CreateBlock("while.end");
+
+    lc.builder.MakeBranch(cond_block);
+
+    for (auto &bb : lc.fn->blocks) {
+      if (bb.get() == cond_block) {
+        lc.builder.SetInsertPoint(bb);
+        break;
+      }
+    }
+    lc.terminated = false;
+    auto cond = EvalExpr(while_stmt->condition, lc);
+    lc.builder.MakeCondBranch(cond.value, body_block, exit_block);
+
+    for (auto &bb : lc.fn->blocks) {
+      if (bb.get() == body_block) {
+        lc.builder.SetInsertPoint(bb);
+        break;
+      }
+    }
+    lc.terminated = false;
+    LowerStmt(while_stmt->body, lc);
+    if (!lc.terminated)
+      lc.builder.MakeBranch(cond_block);
+
+    for (auto &bb : lc.fn->blocks) {
+      if (bb.get() == exit_block) {
+        lc.builder.SetInsertPoint(bb);
+        break;
+      }
+    }
+    lc.terminated = false;
+    return true;
   }
 
   if (auto for_stmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
@@ -679,6 +833,7 @@ bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(mangled, ret, params);
+  lc.builder.SetCurrentFunction(lc.fn);
   auto *entry = lc.fn->CreateBlock("entry");
   lc.fn->entry = entry;
   if (!lc.fn->blocks.empty()) {
@@ -686,8 +841,13 @@ bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
   }
 
   lc.env.clear();
+  lc.local_addresses.clear();
   for (auto &p : params) {
     lc.env[p.first] = {p.first, p.second};
+    // Parameters are assignable locals; stores keep mutations correct across CFG edges.
+    auto storage = lc.builder.MakeAlloca(p.second, p.first + ".addr");
+    lc.builder.MakeStore(storage->name, p.first);
+    lc.local_addresses[p.first] = storage->name;
   }
   lc.terminated = false;
 
@@ -746,6 +906,7 @@ bool LowerConstructor(const ConstructorDecl &ctor, LoweringContext &lc) {
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(mangled, ir::IRType::Void(), params);
+  lc.builder.SetCurrentFunction(lc.fn);
   auto *entry = lc.fn->CreateBlock("entry");
   lc.fn->entry = entry;
   if (!lc.fn->blocks.empty()) {
@@ -753,8 +914,13 @@ bool LowerConstructor(const ConstructorDecl &ctor, LoweringContext &lc) {
   }
 
   lc.env.clear();
+  lc.local_addresses.clear();
   for (auto &p : params) {
     lc.env[p.first] = {p.first, p.second};
+    // Parameters are assignable locals; stores keep mutations correct across CFG edges.
+    auto storage = lc.builder.MakeAlloca(p.second, p.first + ".addr");
+    lc.builder.MakeStore(storage->name, p.first);
+    lc.local_addresses[p.first] = storage->name;
   }
   lc.terminated = false;
 
@@ -797,6 +963,18 @@ void LowerClass(const ClassDecl &cls, LoweringContext &lc) {
 
   auto saved_class = lc.current_class;
   lc.current_class = cls.name;
+  for (const auto &member : cls.members) {
+    auto method = std::dynamic_pointer_cast<MethodDecl>(member);
+    if (!method || !method->is_static) continue;
+    const auto name = cls.name + "::" + method->name;
+    if (lc.static_methods.count(name)) { lc.static_methods[name].ambiguous = true; continue; }
+    LoweringContext::StaticSignature signature;
+    signature.result = ToIRType(method->return_type, lc.diags, method->loc);
+    for (const auto &param : method->params)
+      signature.params.push_back(ToIRType(param.type, lc.diags, method->loc));
+    lc.static_methods.emplace(name, std::move(signature));
+  }
+
 
   for (auto &member : cls.members) {
     if (auto method = std::dynamic_pointer_cast<MethodDecl>(member)) {

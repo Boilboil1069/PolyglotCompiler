@@ -880,8 +880,8 @@ TEST_CASE("Rust Lowering - Modern boundary behavior", "[rust][lowering][modern]"
         auto *condition = ctx.Functions()[0]->blocks[1].get();
         REQUIRE(condition->name == "for.cond");
         REQUIRE_FALSE(condition->instructions.empty());
-        auto phi = std::dynamic_pointer_cast<polyglot::ir::PhiInstruction>(
-            condition->instructions.front());
+        REQUIRE_FALSE(condition->phis.empty());
+        auto phi = condition->phis.front();
         REQUIRE(phi);
         REQUIRE(phi->incomings.size() == 2);
         REQUIRE(condition->terminator);

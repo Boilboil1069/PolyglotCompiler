@@ -1,3 +1,5 @@
+#include "frontends/common/include/native_string_literal.h"
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     lowering.cpp
  * @brief    C++ language frontend implementation
@@ -97,6 +99,7 @@ struct LoweringContext {
   ir::IRContext &ir_ctx;
   frontends::Diagnostics &diags;
   std::unordered_map<Name, EnvEntry> env;
+  std::unordered_map<Name, Name> local_addresses;
   std::unordered_map<Name, ir::IRType> function_returns;
   ir::ClassMetadata class_metadata;               // Class metadata management
   ir::TemplateInstantiator template_instantiator; // Template instantiation management
@@ -729,6 +732,11 @@ EvalResult EvalIdentifier(const std::shared_ptr<Identifier> &id, LoweringContext
     lc.diags.Report(id->loc, "Undefined identifier: " + id->name);
     return {};
   }
+  auto address = lc.local_addresses.find(id->name);
+  if (address != lc.local_addresses.end()) {
+    auto load = lc.builder.MakeLoad(address->second, it->second.type);
+    return {load->name, load->type};
+  }
   return {it->second.value, it->second.type};
 }
 
@@ -784,7 +792,44 @@ std::optional<ir::BinaryInstruction::Op> MapBinOp(const std::string &op, bool is
   return std::nullopt;
 }
 
+EvalResult ToCondition(const EvalResult &value, LoweringContext &lc,
+                       const core::SourceLoc &loc) {
+  if (value.type.kind == ir::IRTypeKind::kI1) return value;
+  if (!value.type.IsScalar() && value.type.kind != ir::IRTypeKind::kPointer) {
+    lc.diags.ReportError(loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C++ contextual boolean conversion requires a scalar value");
+    return {};
+  }
+  const auto zero = value.type.IsFloat() ? MakeFloatLiteral(0.0, lc).value : "0";
+  const auto op = value.type.IsFloat() ? ir::BinaryInstruction::Op::kCmpFne
+                                      : ir::BinaryInstruction::Op::kCmpNe;
+  auto comparison = lc.builder.MakeBinary(op, value.value, zero, "truth");
+  comparison->type = ir::IRType::I1();
+  return {comparison->name, comparison->type};
+}
+
 EvalResult EvalBinary(const std::shared_ptr<BinaryExpression> &bin, LoweringContext &lc) {
+  if (bin->op == "&&" || bin->op == "||") {
+    const bool conjunction = bin->op == "&&";
+    auto lhs = ToCondition(EvalExpr(bin->left, lc), lc, bin->loc);
+    if (lhs.type.kind == ir::IRTypeKind::kInvalid) return {};
+    auto *lhs_end = lc.builder.GetInsertPoint().get();
+    auto rhs_block = lc.builder.CreateBlock("logic.rhs");
+    auto merge_block = lc.builder.CreateBlock("logic.merge");
+    lc.builder.MakeCondBranch(lhs.value, conjunction ? rhs_block.get() : merge_block.get(),
+                             conjunction ? merge_block.get() : rhs_block.get());
+    lc.builder.SetInsertPoint(rhs_block);
+    auto rhs = ToCondition(EvalExpr(bin->right, lc), lc, bin->loc);
+    if (rhs.type.kind == ir::IRTypeKind::kInvalid) return {};
+    // Nested logical expressions may end in a different block from rhs_block.
+    auto *rhs_end = lc.builder.GetInsertPoint().get();
+    lc.builder.MakeBranch(merge_block.get());
+    lc.builder.SetInsertPoint(merge_block);
+    auto phi = lc.builder.MakePhi(ir::IRType::I1(),
+        {{lhs_end, conjunction ? "0" : "1"}, {rhs_end, rhs.value}}, "logic.result");
+    return {phi->name, phi->type};
+  }
+
   // A three-way comparison produces a comparison-category object, not a
   // boolean or arithmetic value.  Until that ABI type is represented in IR,
   // reject it explicitly instead of MapBinOp's historical fallback to add.
@@ -798,6 +843,21 @@ EvalResult EvalBinary(const std::shared_ptr<BinaryExpression> &bin, LoweringCont
       bin->op == "=" || bin->op == "+=" || bin->op == "-=" || bin->op == "*=" ||
       bin->op == "/=" || bin->op == "%=";
   if (is_assignment) {
+    if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left);
+        id && lc.local_addresses.count(id->name)) {
+      auto rhs = EvalExpr(bin->right, lc);
+      if (rhs.type.kind == ir::IRTypeKind::kInvalid) return {};
+      auto type = lc.env.at(id->name).type;
+      if (bin->op != "=") {
+        auto old = lc.builder.MakeLoad(lc.local_addresses.at(id->name), type);
+        auto op = MapBinOp(bin->op.substr(0, bin->op.size() - 1), type.IsFloat(), type.IsSigned());
+        if (!op) return {};
+        auto value = lc.builder.MakeBinary(*op, old->name, rhs.value, "");
+        value->type = type; rhs = {value->name, type};
+      }
+      lc.builder.MakeStore(lc.local_addresses.at(id->name), rhs.value);
+      return rhs;
+    }
     auto member = std::dynamic_pointer_cast<MemberExpression>(bin->left);
     if (!member) {
       lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
@@ -899,6 +959,50 @@ EvalResult EvalBinary(const std::shared_ptr<BinaryExpression> &bin, LoweringCont
 }
 
 EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext &lc) {
+  if (auto id = std::dynamic_pointer_cast<Identifier>(call->callee)) {
+    if (const auto *api = frontends::FindNativeBuiltin(id->name)) {
+      std::vector<std::string> values;
+      std::vector<ir::IRType> types;
+      for (size_t i = 0; i < call->args.size(); ++i) {
+        auto literal = std::dynamic_pointer_cast<Literal>(call->args[i]);
+        if (literal && i < api->params.size() && api->params[i] == frontends::NativeType::kString) {
+          const auto &text = literal->value;
+          std::string body, decoded, error;
+          bool raw = false;
+          if (text.size() >= 2 && text.front() == '"' && text.back() == '"') {
+            body = text.substr(1, text.size() - 2);
+          } else if (text.rfind("R\"", 0) == 0) {
+            auto open = text.find('(', 2);
+            const auto delimiter = open == std::string::npos ? "" : text.substr(2, open - 2);
+            const auto end = ")" + delimiter + "\"";
+            if (open == std::string::npos || !text.ends_with(end)) {
+              lc.diags.ReportError(literal->loc, frontends::ErrorCode::kUnsupportedLowering,
+                                   "invalid native raw string literal");
+              return {};
+            }
+            body = text.substr(open + 1, text.size() - end.size() - open - 1); raw = true;
+          } else {
+            lc.diags.ReportError(literal->loc, frontends::ErrorCode::kUnsupportedLowering,
+                                 "native text APIs require a narrow string literal or arg_text result");
+            return {};
+          }
+          if (!frontends::DecodeNativeString(body, raw, false, decoded, error)) {
+            lc.diags.ReportError(literal->loc, frontends::ErrorCode::kUnsupportedLowering, error);
+            return {};
+          }
+          values.push_back(lc.builder.MakeStringLiteral(decoded, "cpp.native.text"));
+          types.push_back(frontends::NativeIRType(frontends::NativeType::kString));
+        } else {
+          auto value = EvalExpr(call->args[i], lc);
+          if (value.type.kind == ir::IRTypeKind::kInvalid) return {};
+          values.push_back(value.value); types.push_back(value.type);
+        }
+      }
+      auto value = frontends::EmitNativeBuiltin(*api, values, types, lc.builder, lc.ir_ctx, lc.diags, call->loc);
+      return value ? EvalResult{value->name, value->type} : EvalResult{};
+    }
+  }
+
   std::vector<std::string> args;
   std::vector<ir::IRType> arg_types;
   for (const auto &arg : call->args) {
@@ -972,6 +1076,11 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     return {};
   }
 
+  if (const auto *api = frontends::FindNativeBuiltin(callee_name)) {
+    auto inst = frontends::EmitNativeBuiltin(*api, args, arg_types, lc.builder, lc.ir_ctx, lc.diags, call->loc);
+    if (!inst) return {};
+    return {inst->name, inst->type};
+  }
   auto known = lc.function_returns.find(callee_name);
   if (known == lc.function_returns.end()) {
     lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
@@ -995,8 +1104,38 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
               "' requires coroutine frame lowering, which is not implemented");
       return {};
     }
+    auto operand = EvalExpr(unary->operand, lc);
+    if (operand.type.kind == ir::IRTypeKind::kInvalid) return {};
+    using Op = ir::BinaryInstruction::Op;
+    if (unary->op == "+" && operand.type.IsScalar()) return operand;
+    if (unary->op == "-" && operand.type.IsScalar()) {
+      if (operand.type.IsFloat()) {
+        auto value = lc.builder.MakeFloatNegate(operand.value, operand.type, "neg");
+        return {value->name, value->type};
+      }
+      auto value = lc.builder.MakeBinary(Op::kSub, "0", operand.value, "neg");
+      value->type = operand.type;
+      return {value->name, value->type};
+    }
+    if (unary->op == "!") {
+      auto condition = ToCondition(operand, lc, unary->loc);
+      if (condition.type.kind == ir::IRTypeKind::kInvalid) return {};
+      auto value = lc.builder.MakeBinary(Op::kXor, condition.value, "1", "not");
+      value->type = ir::IRType::I1();
+      return {value->name, value->type};
+    }
+    if (unary->op == "~" && operand.type.IsInteger()) {
+      auto value = lc.builder.MakeBinary(Op::kXor, operand.value, "-1", "bitnot");
+      value->type = operand.type;
+      return {value->name, value->type};
+    }
+    lc.diags.ReportError(unary->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported C++ unary operator lowering: " + unary->op);
+    return {};
   }
   if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
+    if (lit->value == "true" || lit->value == "false")
+      return {lit->value == "true" ? "1" : "0", ir::IRType::I1()};
     // strtod accepts integer spellings such as "0" and "24".  Integer
     // recognition must therefore run first or ordinary business constants
     // become detached cfN values that the native backend treats as vregs.
@@ -1063,7 +1202,7 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
   if (if_stmt->init && !LowerStmt(if_stmt->init, lc))
     return false;
 
-  auto cond = EvalExpr(if_stmt->condition, lc);
+  auto cond = ToCondition(EvalExpr(if_stmt->condition, lc), lc, if_stmt->loc);
   if (cond.type.kind == ir::IRTypeKind::kInvalid)
     return false;
 
@@ -1161,7 +1300,7 @@ bool LowerWhile(const std::shared_ptr<WhileStatement> &while_stmt, LoweringConte
   }
   lc.terminated = false;
 
-  auto cond = EvalExpr(while_stmt->condition, lc);
+  auto cond = ToCondition(EvalExpr(while_stmt->condition, lc), lc, while_stmt->loc);
   if (cond.type.kind == ir::IRTypeKind::kInvalid)
     return false;
 
@@ -1227,7 +1366,7 @@ bool LowerFor(const std::shared_ptr<ForStatement> &for_stmt, LoweringContext &lc
   lc.terminated = false;
 
   if (for_stmt->condition) {
-    auto cond = EvalExpr(for_stmt->condition, lc);
+    auto cond = ToCondition(EvalExpr(for_stmt->condition, lc), lc, for_stmt->loc);
     if (cond.type.kind == ir::IRTypeKind::kInvalid)
       return false;
     lc.builder.MakeCondBranch(cond.value, body_block, exit_block);
@@ -1382,6 +1521,9 @@ bool LowerVar(const std::shared_ptr<VarDecl> &var, LoweringContext &lc) {
                          "C++ variable initializer could not be lowered");
     return false;
   }
+  auto storage = lc.builder.MakeAlloca(init.type);
+  lc.builder.MakeStore(storage->name, init.value);
+  lc.local_addresses[var->name] = storage->name;
   lc.env[var->name] = {init.value, init.type};
   return true;
 }
@@ -1869,7 +2011,7 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
       }
     }
     lc.terminated = false;
-    auto cond = EvalExpr(do_while->condition, lc);
+    auto cond = ToCondition(EvalExpr(do_while->condition, lc), lc, do_while->loc);
     lc.builder.MakeCondBranch(cond.value, body_block, exit_block);
 
     for (auto &bb : lc.fn->blocks) {
@@ -1950,6 +2092,7 @@ bool LowerFunction(const FunctionDecl &fn, LoweringContext &lc) {
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(fn.name, ret_ty, params);
+  lc.builder.SetCurrentFunction(lc.fn);
   // Create entry block and start inserting there.
   auto *entry = lc.fn->CreateBlock("entry");
   lc.fn->entry = entry;
@@ -1958,9 +2101,17 @@ bool LowerFunction(const FunctionDecl &fn, LoweringContext &lc) {
   }
 
   lc.env.clear();
+  lc.local_addresses.clear();
   lc.local_objects.clear();
   for (const auto &p : params) {
     lc.env[p.first] = {p.first, p.second};
+    // Scalar parameters are local variables in C++; assigning one must not
+    // overwrite the incoming SSA definition or be rejected as a non-lvalue.
+    if (p.second.IsScalar()) {
+      auto storage = lc.builder.MakeAlloca(p.second, p.first + ".addr");
+      lc.builder.MakeStore(storage->name, p.first);
+      lc.local_addresses[p.first] = storage->name;
+    }
   }
   lc.terminated = false;
 

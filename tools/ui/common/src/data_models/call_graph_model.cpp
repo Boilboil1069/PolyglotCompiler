@@ -240,9 +240,11 @@ void CallGraphModel::RebuildAdjacency() {
   // Sort outgoing/incoming lists for deterministic enumeration.
   for (auto it = adjacency_.begin(); it != adjacency_.end(); ++it) {
     std::sort(it.value().begin(), it.value().end());
+    it.value().erase(std::unique(it.value().begin(), it.value().end()), it.value().end());
   }
   for (auto it = reverse_.begin(); it != reverse_.end(); ++it) {
     std::sort(it.value().begin(), it.value().end());
+    it.value().erase(std::unique(it.value().begin(), it.value().end()), it.value().end());
   }
 }
 

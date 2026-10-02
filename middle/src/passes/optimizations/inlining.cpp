@@ -53,6 +53,8 @@ void RunInlining(ir::IRContext &context) {
       return std::make_shared<ir::BinaryInstruction>(*bin);
     if (auto *phi = dynamic_cast<const ir::PhiInstruction *>(&inst))
       return std::make_shared<ir::PhiInstruction>(*phi);
+    if (auto *c = dynamic_cast<const ir::ConstantInstruction *>(&inst))
+      return std::make_shared<ir::ConstantInstruction>(*c);
     if (auto *as = dynamic_cast<const ir::AssignInstruction *>(&inst))
       return std::make_shared<ir::AssignInstruction>(*as);
     if (auto *call = dynamic_cast<const ir::CallInstruction *>(&inst))

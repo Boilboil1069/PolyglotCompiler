@@ -1,0 +1,49 @@
+// Read up to 1024 integers, sort them, write the sorted file, and print statistics.
+// -2147483648 is reserved as the end-of-input sentinel in this example.
+FUNC main() -> INT {
+  IF args_count() < 3 {
+    print_text("usage: number-stats INPUT OUTPUT\n");
+    RETURN 2;
+  }
+  VAR input = file_open_ints(arg_text(1));
+  IF input < 0 { print_text("cannot open input\n"); RETURN 3; }
+  VAR values = array_new(1024);
+  IF values == 0 { file_close(input); RETURN 4; }
+  VAR count = 0;
+  VAR total = 0;
+  VAR value = file_next_int(input, -2147483648);
+  WHILE value != -2147483648 && count < 1024 {
+    array_set(values, count, value);
+    total = total + value;
+    count = count + 1;
+    value = file_next_int(input, -2147483648);
+  }
+  file_close(input);
+  VAR i = 1;
+  WHILE i < count {
+    VAR key = array_get(values, i, 0);
+    VAR j = i;
+    WHILE j > 0 && array_get(values, j - 1, 0) > key {
+      array_set(values, j, array_get(values, j - 1, 0));
+      j = j - 1;
+    }
+    array_set(values, j, key);
+    i = i + 1;
+  }
+  VAR output = file_open_write(arg_text(2));
+  IF output < 0 { array_free(values); print_text("cannot open output\n"); RETURN 5; }
+  i = 0;
+  WHILE i < count {
+    file_write_int(output, array_get(values, i, 0), 10);
+    i = i + 1;
+  }
+  file_close(output);
+  print_text("count: "); print_i64(count);
+  print_text("sum: "); print_i64(total);
+  IF count > 0 {
+    print_text("min: "); print_i64(array_get(values, 0, 0));
+    print_text("max: "); print_i64(array_get(values, count - 1, 0));
+  }
+  array_free(values);
+  RETURN 0;
+}

@@ -454,6 +454,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/problems_panel.cpp
         ui/common/src/workspace_scanner.cpp
         polyc/src/foreign_signature_extractor.cpp
+        polyc/src/local_source_packages.cpp
     )
 
     # Headers with Q_OBJECT must be listed for AUTOMOC
@@ -603,6 +604,18 @@ if(Qt6_FOUND OR Qt5_FOUND)
             get_target_property(_qt_qmake_mac Qt5::qmake IMPORTED_LOCATION)
         endif()
         get_filename_component(_qt_bin_dir_mac "${_qt_qmake_mac}" DIRECTORY)
+
+        # Keep headless workspace verification available in the packaged app.
+        find_file(_qt_offscreen_plugin libqoffscreen.dylib
+            PATHS "${_qt_bin_dir_mac}/../plugins/platforms" NO_DEFAULT_PATH)
+        if(_qt_offscreen_plugin)
+            add_custom_command(TARGET polyui POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_BUNDLE_DIR:polyui>/Contents/PlugIns/platforms"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_qt_offscreen_plugin}"
+                    "$<TARGET_BUNDLE_DIR:polyui>/Contents/PlugIns/platforms/libqoffscreen.dylib"
+                VERBATIM)
+        endif()
 
         find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${_qt_bin_dir_mac}" NO_DEFAULT_PATH)
         if(MACDEPLOYQT_EXECUTABLE)

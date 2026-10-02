@@ -791,6 +791,8 @@ void CompilerService::IndexWorkspaceFile(const std::string &path, const std::str
   const std::string canonical_language = CanonicalLanguageId(language);
   std::lock_guard<std::mutex> lock(index_mutex_);
 
+  workspace_sources_[path] = {canonical_language, source};
+
   // Remove existing entries for this file
   for (auto &[name, syms] : workspace_index_) {
     syms.erase(std::remove_if(syms.begin(), syms.end(),
@@ -989,9 +991,15 @@ void CompilerService::IndexWorkspaceFile(const std::string &path, const std::str
   }
 }
 
+void CompilerService::ForgetWorkspaceBuffer(const std::string &path) {
+  std::lock_guard<std::mutex> lock(index_mutex_);
+  workspace_sources_.erase(path);
+}
+
 void CompilerService::ClearWorkspaceIndex() {
   std::lock_guard<std::mutex> lock(index_mutex_);
   workspace_index_.clear();
+  workspace_sources_.clear();
 }
 
 // ============================================================================
@@ -1110,6 +1118,62 @@ CompilerService::DefinitionLocation CompilerService::FindDefinition(
   }
 
   return result; // not found
+}
+
+
+std::vector<cross_language::FunctionDocumentation> CompilerService::InspectSymbol(
+    const std::string &symbol, const std::string &current_file,
+    const std::string &source, const std::string &language,
+    std::size_t source_offset) const {
+  using namespace cross_language;
+  std::vector<FunctionDocumentation> result;
+  const auto canonical = CanonicalLanguageId(language);
+  const auto target = canonical == "poly" ? ForeignTargetAt(source, source_offset)
+                                           : std::nullopt;
+  std::string name = target ? target->qualified_symbol : symbol;
+  if (auto pos = name.find_last_of(":."); pos != std::string::npos) name = name.substr(pos + 1);
+  if (name.empty()) return result;
+  auto collect = [&](const std::string &text, const std::string &lang, const std::string &path) {
+    for (auto &doc : ExtractFunctionDocumentation(text, lang, path)) {
+      if (doc.name == name) result.push_back(std::move(doc));
+    }
+  };
+  std::unordered_map<std::string, std::pair<std::string, std::string>> buffers;
+  {
+    std::lock_guard<std::mutex> lock(index_mutex_);
+    buffers = workspace_sources_;
+  }
+  if (target) {
+    std::unordered_set<std::string> visited;
+    for (const auto &candidate : ForeignSourceCandidates(current_file, *target)) {
+      const auto path = fs::path(candidate).lexically_normal().string();
+      if (!visited.insert(path).second) continue;
+      auto open = buffers.find(path);
+      if (open != buffers.end()) {
+        collect(open->second.second, target->language, path);
+        continue;
+      }
+      std::error_code ec;
+      if (!fs::is_regular_file(path, ec) || fs::file_size(path, ec) > 2 * 1024 * 1024) continue;
+      std::ifstream file(path);
+      if (!file) continue;
+      std::ostringstream text; text << file.rdbuf();
+      collect(text.str(), target->language, path);
+    }
+  } else {
+    collect(source, canonical, current_file);
+    if (result.empty()) {
+      for (const auto &[path, content] : buffers) {
+        if (path != current_file && content.first == canonical)
+          collect(content.second, content.first, path);
+      }
+    }
+  }
+  std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
+    if (a.location.file != b.location.file) return a.location.file < b.location.file;
+    return a.location.line < b.location.line;
+  });
+  return result;
 }
 
 } // namespace polyglot::tools::ui

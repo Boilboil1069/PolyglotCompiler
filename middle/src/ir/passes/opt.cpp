@@ -7,12 +7,15 @@
  * @date     2026-04-10
  */
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "middle/include/ir/analysis.h"
+#include <limits>
 #include "middle/include/ir/passes/opt.h"
 #include "middle/include/ir/verifier.h"
 
@@ -33,40 +36,28 @@ bool TryParseConst(const std::string &name, long long &out) {
   return false;
 }
 
-bool TryParseFloat(const std::string &name, double &out) {
-  if (name.empty())
-    return false;
-  try {
-    size_t idx = 0;
-    double v = std::stod(name, &idx);
-    if (idx == name.size()) {
-      out = v;
-      return true;
-    }
-  } catch (...) {}
-  return false;
-}
-
 void ApplySubstitutions(Function &func, const std::unordered_map<std::string, std::string> &subst) {
   auto replace = [&](std::string &s) {
-    auto it = subst.find(s);
-    if (it != subst.end())
+    std::unordered_set<std::string> seen;
+    while (seen.insert(s).second) {
+      auto it = subst.find(s);
+      if (it == subst.end()) break;
       s = it->second;
+    }
   };
   for (auto &bb_ptr : func.blocks) {
     auto *bb = bb_ptr.get();
     for (auto &phi : bb->phis) {
-      replace(phi->name);
       for (auto &inc : phi->incomings)
         replace(inc.second);
     }
     for (auto &inst : bb->instructions) {
-      replace(inst->name);
       for (auto &op : inst->operands)
         replace(op);
+      if (auto *call = dynamic_cast<CallInstruction *>(inst.get()); call && call->is_indirect)
+        replace(call->callee);
     }
     if (bb->terminator) {
-      replace(bb->terminator->name);
       for (auto &op : bb->terminator->operands)
         replace(op);
     }
@@ -104,141 +95,136 @@ void RemoveInstructions(Function &func, const std::unordered_set<Instruction *> 
 } // namespace
 
 void ConstantFold(Function &func) {
-  std::unordered_map<std::string, long long> consts;
-  std::unordered_map<std::string, double> consts_f;
-
-  for (auto &bb_ptr : func.blocks) {
-    for (auto &inst : bb_ptr->instructions) {
-      long long a, b;
-      double fa, fb;
-      if (auto *bin = dynamic_cast<BinaryInstruction *>(inst.get())) {
-        if (bin->operands.size() >= 2) {
-          // commutative reordering
-          auto is_comm =
-              bin->op == BinaryInstruction::Op::kAdd || bin->op == BinaryInstruction::Op::kMul ||
-              bin->op == BinaryInstruction::Op::kAnd || bin->op == BinaryInstruction::Op::kOr ||
-              bin->op == BinaryInstruction::Op::kCmpEq;
-          bool lhs_const = consts.count(bin->operands[0]) || TryParseConst(bin->operands[0], a) ||
-                           consts_f.count(bin->operands[0]) || TryParseFloat(bin->operands[0], fa);
-          bool rhs_const = consts.count(bin->operands[1]) || TryParseConst(bin->operands[1], b) ||
-                           consts_f.count(bin->operands[1]) || TryParseFloat(bin->operands[1], fb);
-          if (is_comm && !lhs_const && rhs_const) {
-            std::swap(bin->operands[0], bin->operands[1]);
-          }
-
-          bool ca = consts.count(bin->operands[0]) ? true : TryParseConst(bin->operands[0], a);
-          if (consts.count(bin->operands[0]))
-            a = consts[bin->operands[0]];
-          bool cb = consts.count(bin->operands[1]) ? true : TryParseConst(bin->operands[1], b);
-          if (consts.count(bin->operands[1]))
-            b = consts[bin->operands[1]];
-          bool cfa = consts_f.count(bin->operands[0]) ? true : TryParseFloat(bin->operands[0], fa);
-          if (consts_f.count(bin->operands[0]))
-            fa = consts_f[bin->operands[0]];
-          bool cfb = consts_f.count(bin->operands[1]) ? true : TryParseFloat(bin->operands[1], fb);
-          if (consts_f.count(bin->operands[1]))
-            fb = consts_f[bin->operands[1]];
-          if (ca && cb) {
-            long long res = 0;
-            switch (bin->op) {
-            case BinaryInstruction::Op::kAdd:
-              res = a + b;
-              break;
-            case BinaryInstruction::Op::kSub:
-              res = a - b;
-              break;
-            case BinaryInstruction::Op::kMul:
-              res = a * b;
-              break;
-            case BinaryInstruction::Op::kDiv:
-              res = b != 0 ? a / b : a;
-              break;
-            case BinaryInstruction::Op::kCmpEq:
-              res = (a == b);
-              break;
-            case BinaryInstruction::Op::kCmpLt:
-              res = (a < b);
-              break;
-            default:
-              break;
-            }
-            consts[bin->name] = res;
-          } else if (cfa && cfb) {
-            double res = 0.0;
-            switch (bin->op) {
-            case BinaryInstruction::Op::kAdd:
-              res = fa + fb;
-              break;
-            case BinaryInstruction::Op::kSub:
-              res = fa - fb;
-              break;
-            case BinaryInstruction::Op::kMul:
-              res = fa * fb;
-              break;
-            case BinaryInstruction::Op::kDiv:
-              res = fb != 0.0 ? fa / fb : fa;
-              break;
-            case BinaryInstruction::Op::kCmpEq:
-              consts[bin->name] = (fa == fb);
-              continue;
-            case BinaryInstruction::Op::kCmpLt:
-              consts[bin->name] = (fa < fb);
-              continue;
-            default:
-              break;
-            }
-            consts_f[bin->name] = res;
-          }
-        }
-      } else if (auto *cast = dynamic_cast<CastInstruction *>(inst.get())) {
-        if (!cast->operands.empty()) {
-          long long v;
-          double vf;
-          bool has_i = consts.count(cast->operands[0]) ? true : TryParseConst(cast->operands[0], v);
-          if (consts.count(cast->operands[0]))
-            v = consts[cast->operands[0]];
-          bool has_f = consts_f.count(cast->operands[0]);
-          if (has_f)
-            vf = consts_f[cast->operands[0]];
-          if (has_i || has_f) {
-            if (cast->cast == CastInstruction::CastKind::kTrunc) {
-              if (has_i)
-                v = static_cast<int32_t>(v);
-            }
-            if (cast->type.IsFloat()) {
-              double res = has_f ? vf : static_cast<double>(v);
-              consts_f[cast->name] = res;
-            } else {
-              long long res = has_i ? v : static_cast<long long>(vf);
-              consts[cast->name] = res;
-            }
-          }
-        }
-      }
+  struct Constant { IRType type; std::uint64_t bits; };
+  std::unordered_map<std::string, Constant> constants;
+  auto width = [](const IRType &type) -> unsigned {
+    switch (type.kind) {
+    case IRTypeKind::kI1: return 1;
+    case IRTypeKind::kI8: return 8;
+    case IRTypeKind::kI16: return 16;
+    case IRTypeKind::kI32: case IRTypeKind::kF32: return 32;
+    default: return 64;
     }
-  }
-
-  std::unordered_map<std::string, std::string> subst;
-  std::unordered_set<Instruction *> erase;
-  for (auto &bb_ptr : func.blocks) {
-    for (auto &inst : bb_ptr->instructions) {
-      if (!inst->HasResult())
+  };
+  auto mask = [&](const IRType &type) {
+    return width(type) == 64 ? ~std::uint64_t(0) : (std::uint64_t(1) << width(type)) - 1;
+  };
+  auto signed_value = [&](const Constant &value) -> std::int64_t {
+    const auto bits = value.bits & mask(value.type);
+    const auto sign = std::uint64_t(1) << (width(value.type) - 1);
+    return static_cast<std::int64_t>((bits ^ sign) - sign);
+  };
+  auto floating = [](const Constant &value) {
+    if (value.type.kind == IRTypeKind::kF32) {
+      auto bits = static_cast<std::uint32_t>(value.bits); float result;
+      std::memcpy(&result, &bits, sizeof(result)); return static_cast<double>(result);
+    }
+    double result; std::memcpy(&result, &value.bits, sizeof(result)); return result;
+  };
+  auto float_bits = [](double value, const IRType &type) {
+    std::uint64_t result = 0;
+    if (type.kind == IRTypeKind::kF32) { float f = static_cast<float>(value); std::memcpy(&result, &f, sizeof(f)); }
+    else std::memcpy(&result, &value, sizeof(value));
+    return result;
+  };
+  auto get = [&](const std::string &name, IRType expected, Constant &out) {
+    if (const auto found = constants.find(name); found != constants.end()) { out = found->second; return true; }
+    try {
+      std::size_t consumed = 0;
+      if (expected.IsFloat()) {
+        double value = std::stod(name, &consumed);
+        out = {expected, float_bits(value, expected)};
+      } else out = {expected, std::stoull(name, &consumed, 0) & mask(expected)};
+      return consumed == name.size();
+    } catch (...) { return false; }
+  };
+  for (auto &block : func.blocks) {
+    for (auto &instruction : block->instructions) {
+      if (auto constant = dynamic_cast<ConstantInstruction *>(instruction.get())) {
+        constants[constant->name] = {constant->type, constant->bits & mask(constant->type)};
         continue;
-      auto it_i = consts.find(inst->name);
-      auto it_f = consts_f.find(inst->name);
-      if (it_i != consts.end()) {
-        subst[inst->name] = std::to_string(it_i->second);
-        erase.insert(inst.get());
-      } else if (it_f != consts_f.end()) {
-        subst[inst->name] = std::to_string(it_f->second);
-        erase.insert(inst.get());
       }
+      auto binary = dynamic_cast<BinaryInstruction *>(instruction.get());
+      if (!binary || binary->operands.size() != 2) continue;
+      using Op = BinaryInstruction::Op;
+      auto operand_type = binary->type.kind == IRTypeKind::kI1 ? IRType::I64() : binary->type;
+      for (const auto &name : binary->operands)
+        if (auto found = constants.find(name); found != constants.end()) { operand_type = found->second.type; break; }
+      Constant a, b;
+      if (!get(binary->operands[0], operand_type, a) || !get(binary->operands[1], operand_type, b)) continue;
+      std::uint64_t result = 0;
+      if (a.type.IsFloat() || b.type.IsFloat()) {
+        if (!a.type.IsFloat() || !b.type.IsFloat()) continue;
+        const double x = floating(a), y = floating(b);
+        const bool ordered = !std::isnan(x) && !std::isnan(y);
+        double value = 0; bool comparison = false;
+        switch (binary->op) {
+        case Op::kFAdd: value = x + y; break;
+        case Op::kFSub: value = x - y; break;
+        case Op::kFMul: value = x * y; break;
+        case Op::kFDiv: value = x / y; break;
+        case Op::kFRem: value = std::fmod(x, y); break;
+        case Op::kCmpEq: case Op::kCmpFoe: result = ordered && x == y; comparison = true; break;
+        case Op::kCmpNe: result = x != y; comparison = true; break;
+        case Op::kCmpFne: result = ordered && x != y; comparison = true; break;
+        case Op::kCmpLt: case Op::kCmpFlt: result = ordered && x < y; comparison = true; break;
+        case Op::kCmpFle: result = ordered && x <= y; comparison = true; break;
+        case Op::kCmpFgt: result = ordered && x > y; comparison = true; break;
+        case Op::kCmpFge: result = ordered && x >= y; comparison = true; break;
+        default: continue;
+        }
+        if (!comparison) result = float_bits(value, binary->type);
+      } else {
+        const auto x = a.bits & mask(a.type), y = b.bits & mask(b.type);
+        const auto sx = signed_value(a), sy = signed_value(b);
+        const auto signed_min = width(a.type) == 64 ? std::numeric_limits<std::int64_t>::min()
+                                                   : -(std::int64_t(1) << (width(a.type) - 1));
+        switch (binary->op) {
+        case Op::kAdd: result = x + y; break;
+        case Op::kSub: result = x - y; break;
+        case Op::kMul: result = x * y; break;
+        case Op::kAnd: result = x & y; break;
+        case Op::kOr: result = x | y; break;
+        case Op::kXor: result = x ^ y; break;
+        case Op::kShl: if (y >= width(a.type)) continue; result = x << y; break;
+        case Op::kLShr: if (y >= width(a.type)) continue; result = x >> y; break;
+        case Op::kAShr: if (y >= width(a.type)) continue; result = sx >> y; break;
+        case Op::kDiv: case Op::kSDiv:
+          if (!sy || (sx == signed_min && sy == -1)) continue;
+          result = sx / sy; break;
+        case Op::kRem: case Op::kSRem:
+          if (!sy || (sx == signed_min && sy == -1)) continue;
+          result = sx % sy; break;
+        case Op::kUDiv: if (!y) continue; result = x / y; break;
+        case Op::kURem: if (!y) continue; result = x % y; break;
+        case Op::kCmpEq: result = x == y; break;
+        case Op::kCmpNe: result = x != y; break;
+        case Op::kCmpUlt: result = x < y; break;
+        case Op::kCmpUle: result = x <= y; break;
+        case Op::kCmpUgt: result = x > y; break;
+        case Op::kCmpUge: result = x >= y; break;
+        case Op::kCmpLt: case Op::kCmpSlt: result = sx < sy; break;
+        case Op::kCmpSle: result = sx <= sy; break;
+        case Op::kCmpSgt: result = sx > sy; break;
+        case Op::kCmpSge: result = sx >= sy; break;
+        default: continue;
+        }
+      }
+      auto folded = std::make_shared<ConstantInstruction>();
+      folded->name = binary->name; folded->type = binary->type; folded->parent = block.get();
+      folded->bits = result & mask(folded->type);
+      constants[folded->name] = {folded->type, folded->bits};
+      instruction = std::move(folded);
+    }
+    // CFG canonicalisation understands literal conditions; substitute only
+    // here so arithmetic operands retain their original width and float bits.
+    if (auto branch = dynamic_cast<CondBranchStatement *>(block->terminator.get());
+        branch && !branch->operands.empty()) {
+      const auto found = constants.find(branch->operands[0]);
+      if (found != constants.end() && found->second.type.IsInteger())
+        branch->operands[0] = found->second.bits ? "1" : "0";
     }
   }
-  if (!subst.empty())
-    ApplySubstitutions(func, subst);
-  if (!erase.empty())
-    RemoveInstructions(func, erase);
 }
 
 void DeadCodeEliminate(Function &func) {
@@ -264,7 +250,8 @@ void DeadCodeEliminate(Function &func) {
     auto &insts = bb_ptr->instructions;
     insts.erase(std::remove_if(insts.begin(), insts.end(),
                                [&](const std::shared_ptr<Instruction> &inst) {
-                                 if (!inst->HasResult())
+                                 if (!inst->HasResult() || dynamic_cast<CallInstruction *>(inst.get()) ||
+                                     dynamic_cast<InvokeInstruction *>(inst.get()))
                                    return false;
                                  return live.count(inst->name) == 0;
                                }),
@@ -528,6 +515,7 @@ void CSE(Function &func) {
   std::unordered_map<Key, std::string, KeyHash> table;
 
   for (auto &bb_ptr : func.blocks) {
+    table.clear(); // availability is local until dominance is proven
     std::unordered_map<std::string, std::string> avail_loads;
     for (auto &inst : bb_ptr->instructions) {
       if (auto *bin = dynamic_cast<BinaryInstruction *>(inst.get())) {

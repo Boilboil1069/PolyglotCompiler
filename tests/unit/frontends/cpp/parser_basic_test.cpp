@@ -242,10 +242,18 @@ int pricing_session_payable(int unit_price, int quantity, int shipping_fee) {
   REQUIRE(this_type.subtypes.front().subtypes.size() == 4);
 
   auto field_store_count = [](const polyglot::ir::Function &function) {
+    std::unordered_set<std::string> field_addresses;
+    for (const auto &block : function.blocks)
+      for (const auto &instruction : block->instructions)
+        if (auto gep =
+                std::dynamic_pointer_cast<polyglot::ir::GetElementPtrInstruction>(instruction))
+          field_addresses.insert(gep->name);
     std::size_t count = 0;
     for (const auto &block : function.blocks)
       for (const auto &instruction : block->instructions)
-        count += std::dynamic_pointer_cast<polyglot::ir::StoreInstruction>(instruction) ? 1 : 0;
+        if (auto store = std::dynamic_pointer_cast<polyglot::ir::StoreInstruction>(instruction))
+          if (!store->operands.empty() && field_addresses.count(store->operands.front()))
+            ++count;
     return count;
   };
   REQUIRE(field_store_count(*constructor) == 4);
@@ -259,8 +267,10 @@ int pricing_session_payable(int unit_price, int quantity, int shipping_fee) {
       if (auto alloca =
               std::dynamic_pointer_cast<polyglot::ir::AllocaInstruction>(instruction)) {
         REQUIRE(alloca->type.kind == polyglot::ir::IRTypeKind::kPointer);
-        REQUIRE(alloca->type.subtypes.front().subtypes.size() == 4);
-        ++aggregate_allocas;
+        if (alloca->type.subtypes.front().kind == polyglot::ir::IRTypeKind::kStruct) {
+          REQUIRE(alloca->type.subtypes.front().subtypes.size() == 4);
+          ++aggregate_allocas;
+        }
       }
       if (auto call = std::dynamic_pointer_cast<polyglot::ir::CallInstruction>(instruction))
         wrapper_calls.push_back(call->callee);
@@ -285,4 +295,47 @@ int pricing_session_payable(int unit_price, int quantity, int shipping_fee) {
   REQUIRE(last_call);
   REQUIRE(last_call->callee == "OrderPricingSession::~OrderPricingSession");
   REQUIRE(std::dynamic_pointer_cast<polyglot::ir::ReturnStatement>(entry->terminator));
+}
+
+TEST_CASE("C++ scalar parameter mutation and nested logic form valid SSA control flow",
+          "[cpp][lowering][control][shortcircuit]") {
+  Diagnostics diag;
+  auto ctx = ParseAndLowerCpp(R"(
+    bool classify(int value) {
+      value = value + 1;
+      return (value > 0 && (value < 4 || value == 7)) || value == 9;
+    }
+    int negate(int value) { value = -value; return value; }
+    bool invert(int value) { return !value; }
+  )", diag);
+  for (const auto &diagnostic : diag.All()) UNSCOPED_INFO(Diagnostics::Format(diagnostic));
+  REQUIRE_FALSE(diag.HasErrors());
+  std::string error;
+  const bool valid = polyglot::ir::Verify(ctx, &error);
+  INFO(error); CHECK(valid);
+  size_t phi_count = 0;
+  for (const auto &fn : ctx.Functions())
+    for (const auto &block : fn->blocks) phi_count += block->phis.size();
+  CHECK(phi_count == 3);
+}
+
+TEST_CASE("C++ native text literals preserve escaped and raw bytes", "[cpp][lowering][native-text]") {
+  Diagnostics diagnostics;
+  auto context = ParseAndLowerCpp(R"cpp(
+    int main() {
+      print_text("line\n");
+      print_text(R"(raw\n)");
+      return 0;
+    }
+  )cpp", diagnostics);
+  for (const auto &diagnostic : diagnostics.All()) UNSCOPED_INFO(Diagnostics::Format(diagnostic));
+  REQUIRE_FALSE(diagnostics.HasErrors());
+  bool escaped = false, raw = false;
+  for (const auto &global : context.Globals()) {
+    if (auto text = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(global->initializer)) {
+      escaped |= text->data == "line\n";
+      raw |= text->data == "raw\\n";
+    }
+  }
+  CHECK(escaped); CHECK(raw);
 }

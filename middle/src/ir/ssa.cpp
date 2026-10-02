@@ -7,6 +7,7 @@
  * @date     2026-04-10
  */
 #include <stack>
+#include <cstdlib>
 #include <vector>
 
 #include "middle/include/ir/ssa.h"
@@ -97,6 +98,8 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
     for (auto &op : inst->operands) {
       op = current_top(op);
     }
+    if (auto *call = dynamic_cast<CallInstruction *>(inst.get()); call && call->is_indirect)
+      call->callee = current_top(call->callee);
     if (auto *phi = dynamic_cast<PhiInstruction *>(inst.get())) {
       for (auto &inc : phi->incomings) {
         inc.second = current_top(inc.second);
@@ -120,6 +123,10 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
       for (auto &inc : phi->incomings) {
         if (inc.first == bb) {
           // Check if the base name has a version on the stack
+          char *literal_end = nullptr;
+          std::strtoull(inc.second.c_str(), &literal_end, 0);
+          const bool literal = literal_end != inc.second.c_str() && *literal_end == '\0';
+          if (literal) continue;
           auto sit = stacks.find(inc.second);
           if ((sit == stacks.end() || sit->second.empty()) && !pre_defined.count(inc.second)) {
             // Value is undefined on this path — mark as undef

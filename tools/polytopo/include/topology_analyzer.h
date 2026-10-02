@@ -61,6 +61,7 @@ private:
     uint64_t producer_node_id{0};
     uint64_t producer_port_id{0};
     core::Type type{core::Type::Any()};
+    std::string value_name;
   };
   ExprResult AnalyzeExpression(const std::shared_ptr<ploy::Expression> &expr,
                                uint64_t context_node_id);
@@ -74,6 +75,12 @@ private:
                                uint64_t context_node_id);
   ExprResult AnalyzeCallExpression(const std::shared_ptr<ploy::CallExpression> &call,
                                    uint64_t context_node_id);
+
+  void BindBoundary(uint64_t context_node_id);
+  uint64_t CreateCallInstance(uint64_t prototype, const core::SourceLoc &loc);
+  ExprResult MakeExpressionNode(const std::string &label, TopologyNode::Kind kind,
+                                const std::vector<ExprResult> &args, const core::Type &type,
+                                const core::SourceLoc &loc);
 
   // Resolve a type from a TypeNode via the sema type system
   core::Type ResolveType(const std::shared_ptr<ploy::TypeNode> &type_node) const;
@@ -105,6 +112,8 @@ private:
   // body is being walked.  Set before AnalyzeBody() and read by
   // FindOrCreateExternalNode() / ConnectEdge() to tag new items.
   uint64_t current_context_id_{0};
+  std::unordered_map<uint64_t, uint64_t> return_boundaries_;
+  std::unordered_map<std::string, size_t> call_instances_;
 };
 
 } // namespace polyglot::tools::topo

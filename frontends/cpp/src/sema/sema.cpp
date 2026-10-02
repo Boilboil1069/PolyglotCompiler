@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     sema.cpp
  * @brief    C++ language frontend implementation
@@ -35,6 +36,7 @@ public:
   void Run() {
     scope_stack_.push_back({ScopeKind::kModule});
     Syms().EnterScope("<cpp-module>", ScopeKind::kModule);
+    frontends::RegisterNativeBuiltins(Syms(), Types(), "cpp");
     for (const auto &decl : module_.declarations) {
       AnalyzeDecl(decl);
     }

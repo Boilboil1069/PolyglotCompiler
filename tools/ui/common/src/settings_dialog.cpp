@@ -132,14 +132,14 @@ QWidget *SettingsDialog::CreateAppearancePage() {
   theme_layout->addRow("Color Theme:", theme_combo_);
   layout->addWidget(theme_group);
 
-  auto *font_group = new QGroupBox("Font");
+  auto *font_group = new QGroupBox("Interface Font");
   auto *font_layout = new QFormLayout(font_group);
   font_combo_ = new QFontComboBox();
-  font_combo_->setCurrentFont(QFont("Menlo"));
+  font_combo_->setCurrentFont(font());
   font_layout->addRow("Font Family:", font_combo_);
   font_size_spin_ = new QSpinBox();
   font_size_spin_->setRange(8, 32);
-  font_size_spin_->setValue(13);
+  font_size_spin_->setValue(font().pointSize());
   font_layout->addRow("Font Size:", font_size_spin_);
   layout->addWidget(font_group);
 
@@ -588,8 +588,8 @@ void SettingsDialog::LoadSettings() {
 
   // Appearance
   theme_combo_->setCurrentIndex(s.value("appearance/theme", 0).toInt());
-  font_combo_->setCurrentFont(QFont(s.value("appearance/font_family", "Menlo").toString()));
-  font_size_spin_->setValue(s.value("appearance/font_size", 13).toInt());
+  font_combo_->setCurrentFont(QFont(s.value("appearance/font_family", font().family()).toString()));
+  font_size_spin_->setValue(s.value("appearance/font_size", font().pointSize()).toInt());
   show_toolbar_check_->setChecked(s.value("appearance/show_toolbar", true).toBool());
   show_statusbar_check_->setChecked(s.value("appearance/show_statusbar", true).toBool());
   show_explorer_check_->setChecked(s.value("view/show_file_browser", true).toBool());

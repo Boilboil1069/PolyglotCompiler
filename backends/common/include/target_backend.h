@@ -34,6 +34,7 @@ namespace polyglot::backends {
 enum class RegAllocStrategy {
   kLinearScan,
   kGraphColoring,
+  kStack, // ARM64 correctness/performance baseline: every value has a frame slot.
 };
 
 /** @brief Instruction scheduling strategy requested by the driver. */
@@ -76,6 +77,7 @@ struct TargetOptions {
   EmitKind emit{EmitKind::kObject};
   DebugInfoLevel debug_info{DebugInfoLevel::kFull};
   int opt_level{0};
+  std::string target_os;
   bool force{false};        // Continue past non-fatal verifier errors.
   bool position_independent{false};
 };

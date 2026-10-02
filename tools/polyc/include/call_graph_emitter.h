@@ -15,8 +15,10 @@
 namespace polyglot::tools::polyc {
 
 // Walk the supplied IR context and emit a JSON document describing
-// every call site reachable from the program's defined functions.
-// The schema is documented in docs/specs/call_graph_schema_en.md and
+// every direct call instruction present in the supplied IR. This is a static
+// inventory, not a claim about runtime reachability. Repeated calls retain
+// distinct callsite_id values. Unknown callees get explicit external nodes.
+// The schema is documented in docs/specs/call_graph_schema.md and
 // docs/specs/call_graph_schema_zh.md; consumers (polyui call analyzer,
 // CI gates) treat unknown fields as forward-compatible additions.
 //

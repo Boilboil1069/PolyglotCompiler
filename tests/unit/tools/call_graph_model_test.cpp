@@ -141,3 +141,12 @@ TEST_CASE("CallGraphModel Clear empties state", "[ui][callgraph][clear]") {
   REQUIRE(model.RowForId("a") == -1);
   REQUIRE(model.Edges().empty());
 }
+
+TEST_CASE("CallGraphModel deduplicates reachability for repeated callsites", "[ui][callgraph]") {
+  CallGraphModel model;
+  model.Replace({MakeNode("a"), MakeNode("b")}, {MakeEdge("a", "b"), MakeEdge("a", "b")});
+  CHECK(model.DirectCallees("a").size() == 1);
+  CHECK(model.DirectCallers("b").size() == 1);
+  CHECK(model.FindPaths("a", "b", 3).size() == 1);
+  CHECK(model.Edges().size() == 2); // Callsite information remains available.
+}

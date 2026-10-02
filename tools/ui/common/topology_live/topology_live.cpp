@@ -23,7 +23,11 @@ void TopologyGraph::AddNode(Node n) {
   nodes_.push_back(std::move(n));
 }
 
-void TopologyGraph::AddEdge(Edge e) { edges_.push_back(std::move(e)); }
+void TopologyGraph::AddEdge(Edge e) {
+  for (const auto &existing : edges_)
+    if (existing.from == e.from && existing.to == e.to && existing.kind == e.kind) return;
+  edges_.push_back(std::move(e));
+}
 void TopologyGraph::Clear() { nodes_.clear(); edges_.clear(); }
 
 const Node *TopologyGraph::FindNode(const std::string &id) const {
@@ -116,7 +120,7 @@ std::optional<std::pair<std::string, int>>
 LiveTopologyTracker::NodeSource(const std::string &node_id) const {
   const auto *n = base_.FindNode(node_id);
   if (!n) return std::nullopt;
-  if (n->source_file.empty() && n->source_line == 0) return std::nullopt;
+  if (n->source_file.empty() || n->source_line <= 0) return std::nullopt;
   return std::make_pair(n->source_file, n->source_line);
 }
 

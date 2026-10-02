@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     sema.cpp
  * @brief    Rust language frontend implementation
@@ -72,6 +73,7 @@ public:
   void Run() {
     scope_stack_.push_back({ScopeKind::kModule, "<rust-module>"});
     Syms().EnterScope("<rust-module>", ScopeKind::kModule);
+    frontends::RegisterNativeBuiltins(Syms(), Types(), "rust");
     borrow_stack_.push_back({});
     ownership_stack_.push_back({});
     lifetime_stack_.push_back({});

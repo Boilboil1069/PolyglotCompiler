@@ -40,6 +40,9 @@ enum class HostLanguage {
   kPython,
   kJava,
   kDotnet,
+  kGo,
+  kJavaScript,
+  kRuby,
 };
 
 std::string HostLanguageName(HostLanguage l);
@@ -124,5 +127,39 @@ class RenamePlanner {
  private:
   const LinkRegistry &registry_;
 };
+
+
+/// Source-backed documentation. Positions are one-based; no generated prose is
+/// substituted when the source does not contain documentation.
+struct FunctionDocumentation {
+  std::string name;
+  std::string language;
+  std::string signature;
+  std::string documentation;
+  std::string source_preview;
+  SourceLocation location;
+};
+
+struct ForeignCallTarget {
+  std::string language;
+  std::string qualified_symbol;
+};
+
+/// Lightweight source outline, including adjacent source comments / docstrings.
+/// This is an editor index, not a language type checker. Overloads remain
+/// separate results so callers can present an explicit candidate picker.
+std::vector<FunctionDocumentation> ExtractFunctionDocumentation(
+    const std::string &source, const std::string &language,
+    const std::string &filename);
+
+/// Resolve CALL(lang, module::function, ...) or LINK lang::module::function
+/// under a zero-based byte offset. Ignores comments and strings.
+std::optional<ForeignCallTarget> ForeignTargetAt(
+    const std::string &poly_source, std::size_t offset);
+
+/// Candidate source paths for the local module convention used by polyc:
+/// module.ext and <language>/module.ext, relative to the Poly source.
+std::vector<std::string> ForeignSourceCandidates(
+    const std::string &poly_file, const ForeignCallTarget &target);
 
 }  // namespace polyglot::tools::ui::cross_language

@@ -209,6 +209,9 @@ struct SymbolDesc {
 enum class FinalRelocationKind : std::uint8_t {
   kPcRel32,
   kAbs64,
+  kArm64Branch26,
+  kArm64Page21,
+  kArm64PageOff12,
 };
 
 struct FinalRelocationPatch {

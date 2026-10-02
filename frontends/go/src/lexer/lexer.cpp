@@ -230,6 +230,7 @@ Token GoLexer::LexRawString() {
   Token t;
   t.loc = start;
   t.lexeme = s;
+  t.raw_lexeme = "`" + s + "`";
   t.kind = TokenKind::kString;
   return t;
 }

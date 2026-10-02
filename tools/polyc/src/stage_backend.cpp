@@ -31,6 +31,7 @@
 #include "frontends/ploy/include/ploy_lowering.h"
 #include "runtime/include/libs/native_file_runtime.h"
 #include "tools/polyc/src/stage_backend.h"
+#include "tools/polyc/include/native_entry.h"
 
 namespace polyglot::tools {
 
@@ -63,8 +64,18 @@ void AbsorbMC(const MCResult &mc, std::vector<ObjSection> &sections,
     sym_index[symbols[i].name] = i;
 
   for (const auto &sym : mc.symbols) {
-    if (sym_index.count(sym.name))
+    auto old = sym_index.find(sym.name);
+    if (old != sym_index.end()) {
+      auto &existing = symbols[old->second];
+      if (sym.defined && !existing.defined && sec_index.count(sym.section)) {
+        existing.section_index = sec_index.at(sym.section);
+        existing.value = sym.value;
+        existing.size = sym.size;
+        existing.global = sym.global;
+        existing.defined = true;
+      }
       continue;
+    }
     ObjSymbol osym;
     osym.name = sym.name;
     if (sym.defined && sec_index.count(sym.section)) {
@@ -115,9 +126,11 @@ void SetRegAlloc(backends::x86_64::X86Target &t, RegAllocChoice c) {
                             : backends::x86_64::RegAllocStrategy::kLinearScan);
 }
 void SetRegAlloc(backends::arm64::Arm64Target &t, RegAllocChoice c) {
-  t.SetRegAllocStrategy(c == RegAllocChoice::kGraphColoring
-                            ? backends::arm64::RegAllocStrategy::kGraphColoring
-                            : backends::arm64::RegAllocStrategy::kLinearScan);
+  t.SetRegAllocStrategy(c == RegAllocChoice::kStack
+                            ? backends::arm64::RegAllocStrategy::kStack
+                            : c == RegAllocChoice::kGraphColoring
+                                ? backends::arm64::RegAllocStrategy::kGraphColoring
+                                : backends::arm64::RegAllocStrategy::kLinearScan);
 }
 
 bool UsesNativeFileRuntime(const ir::IRContext &ctx) {
@@ -268,6 +281,12 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
     }
   }
 
+  if (settings.mode == "link" && !use_wasm &&
+      !PrepareNativeEntry(*ir_ctx, settings.language, settings.entry_symbol, result.diagnostics)) {
+    result.success = false;
+    return result;
+  }
+
   // ── SSA + Verify ─────────────────────────────────────────────────────────
   // Inject call-trace hooks (if requested) before SSA conversion so the
   // resulting calls go through the standard SSA renamer and become
@@ -386,6 +405,13 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
     result.ir_text = oss.str();
   }
 
+  if (settings.regalloc == RegAllocChoice::kStack && !use_arm64) {
+    result.diagnostics.Report(core::SourceLoc{"<backend>", 1, 1},
+                              "stack allocation baseline requires ARM64");
+    result.success = false;
+    return result;
+  }
+
   // ── Code generation ───────────────────────────────────────────────────────
   if (use_wasm) {
     backends::wasm::WasmTarget wasm(ir_ctx.get());
@@ -415,8 +441,16 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
   auto run_native = [&](auto &target) {
     SetRegAlloc(target, settings.regalloc);
     result.target_triple = target.TargetTriple();
-    result.assembly_text = target.EmitAssembly();
-    auto mc = target.EmitObjectCode();
+    decltype(target.EmitObjectCode()) mc;
+    try {
+      result.assembly_text = target.EmitAssembly();
+      mc = target.EmitObjectCode();
+    }
+    catch (const std::exception &error) {
+      result.diagnostics.Report(core::SourceLoc{"<backend>", 1, 1}, error.what());
+      result.success = false;
+      return;
+    }
 
     if (mc.sections.empty()) {
       if (settings.strict || !settings.force) {
@@ -452,6 +486,7 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
 
   if (use_arm64) {
     backends::arm64::Arm64Target arm64(ir_ctx.get());
+    arm64.SetTargetOS(RuntimeTargetOS(settings));
     run_native(arm64);
   } else {
     backends::x86_64::X86Target x86(ir_ctx.get());

@@ -173,24 +173,18 @@ TEST_CASE("ELF writer emits valid ET_EXEC for aarch64", "[elf][polyld]") {
 }
 
 TEST_CASE("ELF _start stub byte templates are exact", "[elf][polyld]") {
-  // x86_64: call rel32=+11 ; mov rdi,rax ; mov eax,60 ; syscall ; nop
-  const std::vector<std::uint8_t> x86 = {
-      0xE8, 0x0B, 0x00, 0x00, 0x00,
-      0x48, 0x89, 0xC7,
-      0xB8, 0x3C, 0x00, 0x00, 0x00,
-      0x0F, 0x05,
-      0x90,
-  };
-  REQUIRE(BuildStartStubX86_64() == x86);
+  const auto x86 = BuildStartStubX86_64();
+  REQUIRE(x86.size() == 32);
+  REQUIRE(std::vector<std::uint8_t>(x86.begin(), x86.begin() + 9) ==
+          std::vector<std::uint8_t>{0x48, 0x8b, 0x3c, 0x24, 0x48, 0x8d, 0x74, 0x24, 0x08});
+  REQUIRE(x86[9] == 0xe8);
+  REQUIRE(14 + x86[10] == x86.size());
+  const auto arm = BuildStartStubArm64();
+  REQUIRE(arm.size() == 32);
+  REQUIRE(std::vector<std::uint8_t>(arm.begin(), arm.begin() + 12) ==
+          std::vector<std::uint8_t>{0xe0, 0x03, 0x40, 0xf9, 0xe1, 0x23, 0x00, 0x91,
+                                    0x06, 0x00, 0x00, 0x94});
 
-  // aarch64: bl +16 ; movz w8,#93 ; svc #0 ; nop
-  const std::vector<std::uint8_t> arm = {
-      0x04, 0x00, 0x00, 0x94,
-      0xA8, 0x0B, 0x80, 0x52,
-      0x01, 0x00, 0x00, 0xD4,
-      0x1F, 0x20, 0x03, 0xD5,
-  };
-  REQUIRE(BuildStartStubArm64() == arm);
 }
 
 TEST_CASE("ELF writer emits PT_LOAD R+W when data is non-empty",

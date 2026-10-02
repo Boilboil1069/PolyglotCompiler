@@ -24,6 +24,8 @@ class Arm64Target : public polyglot::backends::TargetMachine {
 public:
   explicit Arm64Target(const polyglot::ir::IRContext *module = nullptr) : module_(module) {}
 
+  void SetTargetOS(const std::string &os) { target_os_ = os; }
+
   void SetModule(const polyglot::ir::IRContext *module) { module_ = module; }
   void SetRegAllocStrategy(RegAllocStrategy strategy) { regalloc_strategy_ = strategy; }
 
@@ -67,6 +69,11 @@ public:
 
 private:
   const polyglot::ir::IRContext *module_{nullptr};
+#if defined(__APPLE__)
+  std::string target_os_{"darwin"};
+#else
+  std::string target_os_{"linux"};
+#endif
   RegAllocStrategy regalloc_strategy_{RegAllocStrategy::kLinearScan};
 };
 

@@ -13,12 +13,17 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontDatabase>
 #include <QInputDialog>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QPushButton>
 #include <QMessageBox>
 #include <QPalette>
 #include <QSettings>
 #include <QShortcut>
 #include <QStyle>
+#include <QSysInfo>
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextStream>
@@ -61,6 +66,12 @@
 namespace polyglot::tools::ui {
 
 namespace {
+
+QSettings WindowSettings() {
+  const auto isolated = qApp->property("polyui.settings_file").toString();
+  if (!isolated.isEmpty()) return QSettings(isolated, QSettings::IniFormat);
+  return QSettings(QStringLiteral("PolyglotCompiler"), QStringLiteral("IDE"));
+}
 
 QString CanonicalLanguageId(QString language) {
   if (language.compare(QStringLiteral("poly"), Qt::CaseInsensitive) == 0 ||
@@ -136,6 +147,11 @@ MainWindow::~MainWindow() {
     lsp_bridge_->Shutdown();
   }
   SaveState();
+  // The panel borrows the aggregator and clears its callback in its destructor.
+  // Qt child destruction happens after C++ members (including the aggregator),
+  // so release this borrower explicitly while the owner is still alive.
+  delete problems_panel_;
+  problems_panel_ = nullptr;
 }
 
 // ============================================================================
@@ -155,11 +171,60 @@ void MainWindow::SetupCentralWidget() {
   editor_tabs_->setDocumentMode(true);
   editor_tabs_->setStyleSheet(ThemeManager::Instance().TabWidgetStylesheet(false));
 
-  vertical_splitter_->addWidget(editor_tabs_);
+  workbench_splitter_ = new QSplitter(Qt::Horizontal);
+  workbench_splitter_->setObjectName("workbenchSplitter");
+  workbench_splitter_->setChildrenCollapsible(false);
+  workbench_splitter_->setHandleWidth(5);
+  source_pane_ = new QWidget();
+  source_pane_->setMinimumWidth(320);
+  auto *source_layout = new QVBoxLayout(source_pane_);
+  source_layout->setContentsMargins(0, 0, 0, 0);
+  source_layout->setSpacing(0);
+  auto *source_header = new QWidget();
+  source_header->setObjectName("sourceHeader");
+  auto *header_layout = new QHBoxLayout(source_header);
+  header_layout->setContentsMargins(12, 8, 8, 8);
+  file_breadcrumb_ = new QLabel(tr("WORKSPACE  /  SOURCE"));
+  file_breadcrumb_->setTextFormat(Qt::PlainText);
+  file_breadcrumb_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  header_layout->addWidget(file_breadcrumb_, 1);
+  for (const auto &view : {QStringLiteral("Code"), QStringLiteral("Split"), QStringLiteral("Flow")}) {
+    auto *button = new QPushButton(view);
+    button->setObjectName("view" + view);
+    button->setToolTip(view == "Code" ? tr("Focus source editor") :
+                       view == "Flow" ? tr("Expand function data flow") : tr("Source and data flow side by side"));
+    connect(button, &QPushButton::clicked, this, [this, view]() { SetWorkspaceView(view.toLower()); });
+    header_layout->addWidget(button);
+  }
+  source_layout->addWidget(source_header);
+  source_layout->addWidget(editor_tabs_, 1);
+  workbench_splitter_->addWidget(source_pane_);
+  vertical_splitter_->addWidget(workbench_splitter_);
+  vertical_splitter_->setChildrenCollapsible(false);
+  vertical_splitter_->setHandleWidth(5);
 
   // Bottom tab container: holds Output panel and Terminal tabs
   bottom_tabs_ = new QTabWidget();
-  bottom_tabs_->setTabPosition(QTabWidget::South);
+  bottom_tabs_->setTabPosition(QTabWidget::North);
+  bottom_tabs_->setDocumentMode(true);
+  bottom_tabs_->setMovable(true);
+  bottom_tabs_->setMinimumHeight(140);
+  auto *panel_controls = new QWidget();
+  auto *panel_layout = new QHBoxLayout(panel_controls);
+  panel_layout->setContentsMargins(0, 0, 6, 0);
+  auto *expand_panel = new QToolButton();
+  expand_panel->setText(QStringLiteral("↕"));
+  expand_panel->setToolTip(tr("Expand / restore tool panel"));
+  expand_panel->setCheckable(true);
+  connect(expand_panel, &QToolButton::toggled, this, [this](bool expanded) {
+    vertical_splitter_->setSizes(expanded ? QList<int>{240, 600} : QList<int>{640, 210});
+  });
+  auto *hide_panel = new QToolButton();
+  hide_panel->setText(QStringLiteral("×"));
+  hide_panel->setToolTip(tr("Hide tool panel"));
+  connect(hide_panel, &QToolButton::clicked, this, [this]() { bottom_tabs_->hide(); UpdateViewActionChecks(); });
+  panel_layout->addWidget(expand_panel); panel_layout->addWidget(hide_panel);
+  bottom_tabs_->setCornerWidget(panel_controls, Qt::TopRightCorner);
   bottom_tabs_->setStyleSheet(ThemeManager::Instance().TabWidgetStylesheet(true));
 
   // Terminal tabs widget (supports multiple terminal instances)
@@ -173,6 +238,8 @@ void MainWindow::SetupCentralWidget() {
 
   // Set initial sizes - will be adjusted in SetupDockWidgets
   main_splitter_->addWidget(vertical_splitter_);
+  main_splitter_->setChildrenCollapsible(false);
+  main_splitter_->setHandleWidth(5);
 
   // NOTE: initial sizes are set in SetupDockWidgets() after file_browser_
   // is inserted, so that both children exist when setSizes() is called.
@@ -211,6 +278,12 @@ void MainWindow::SetupDockWidgets() {
 
   // Topology panel
   topology_panel_ = new TopologyPanel();
+  topology_panel_->setMinimumWidth(360);
+  workbench_splitter_->addWidget(topology_panel_);
+  workbench_splitter_->setStretchFactor(0, 3);
+  workbench_splitter_->setStretchFactor(1, 2);
+  workbench_splitter_->setSizes({680, 480});
+  topology_panel_->hide();
 
   // Profiler panel (Performance Profiler).  Owns its own ProfileSession.
   profiler_panel_ = new ProfilerPanel();
@@ -276,7 +349,7 @@ void MainWindow::SetupDockWidgets() {
   panel_manager_->RegisterPanel("git", git_panel_, "Git");
   panel_manager_->RegisterPanel("build", build_panel_, "Build");
   panel_manager_->RegisterPanel("debug", debug_panel_, "Debug");
-  panel_manager_->RegisterPanel("topology", topology_panel_, "Topology");
+
   panel_manager_->RegisterPanel("profiler", profiler_panel_, "Profiler");
   panel_manager_->RegisterPanel("call_analyzer", call_analyzer_panel_, "Call Analyzer");
   panel_manager_->RegisterPanel("lsp", lsp_log_panel_, "LSP");
@@ -289,7 +362,7 @@ void MainWindow::SetupDockWidgets() {
   NewTerminal();
 
   // Set initial vertical sizes (editor : bottom panels)
-  vertical_splitter_->setSizes({650, 250});
+  vertical_splitter_->setSizes({670, 210});
 }
 
 // ============================================================================
@@ -535,11 +608,16 @@ void MainWindow::SetupMenuBar() {
 
 void MainWindow::SetupToolBar() {
   main_toolbar_ = addToolBar("Main");
+  main_toolbar_->setObjectName("buildToolbar");
   main_toolbar_->setMovable(false);
+  main_toolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   main_toolbar_->setIconSize(QSize(20, 20));
   main_toolbar_->setStyleSheet(ThemeManager::Instance().ToolBarStylesheet());
 
-  main_toolbar_->addAction(action_new_);
+  auto *brand = new QLabel(QStringLiteral("POLYGLOT  /  STUDIO"));
+  brand->setObjectName("workspaceBrand");
+  brand->setContentsMargins(10, 0, 24, 0);
+  main_toolbar_->addWidget(brand);
   main_toolbar_->addAction(action_open_);
   main_toolbar_->addAction(action_save_);
   main_toolbar_->addSeparator();
@@ -589,6 +667,25 @@ void MainWindow::SetupToolBar() {
   main_toolbar_->addAction(action_compile_run_);
   main_toolbar_->addAction(action_analyze_);
   main_toolbar_->addAction(action_stop_);
+
+  activity_toolbar_ = new QToolBar(tr("Workspace"), this);
+  activity_toolbar_->setObjectName("activityToolbar");
+  activity_toolbar_->setMovable(false);
+  activity_toolbar_->setIconSize(QSize(22, 22));
+  activity_toolbar_->setToolButtonStyle(Qt::ToolButtonIconOnly);
+  addToolBar(Qt::LeftToolBarArea, activity_toolbar_);
+  auto add_activity = [this](const QString &name, QStyle::StandardPixmap icon, auto handler) {
+    auto *action = activity_toolbar_->addAction(style()->standardIcon(icon), name);
+    action->setToolTip(name);
+    connect(action, &QAction::triggered, this, handler);
+  };
+  add_activity(tr("Explorer"), QStyle::SP_DirIcon, &MainWindow::ToggleFileBrowser);
+  add_activity(tr("Function data flow"), QStyle::SP_FileDialogDetailedView, &MainWindow::OpenTopologyForCurrentFile);
+  add_activity(tr("Build"), QStyle::SP_MediaPlay, &MainWindow::ToggleBuildPanel);
+  add_activity(tr("Problems"), QStyle::SP_MessageBoxWarning, [this]() { panel_manager_->ShowPanel("problems"); });
+  add_activity(tr("Terminal"), QStyle::SP_ComputerIcon, &MainWindow::ToggleTerminal);
+  activity_toolbar_->addSeparator();
+  add_activity(tr("Settings"), QStyle::SP_FileDialogContentsView, &MainWindow::OpenSettings);
 }
 
 // ============================================================================
@@ -600,6 +697,7 @@ void MainWindow::SetupStatusBar() {
   sb->setStyleSheet(ThemeManager::Instance().StatusBarStylesheet());
 
   status_message_ = new QLabel("Ready");
+  status_message_->setObjectName("workspaceStatusMessage");
   sb->addWidget(status_message_, 1);
 
   // Problems counter — clickable label showing aggregated severity
@@ -617,8 +715,9 @@ void MainWindow::SetupStatusBar() {
   };
   status_problems_->setTextFormat(Qt::RichText);
   status_problems_->setText(QStringLiteral(
-      "<a href=\"#problems\" style=\"color:inherit;text-decoration:none\">"
-      "E:0&nbsp;&nbsp;W:0&nbsp;&nbsp;I:0&nbsp;&nbsp;H:0</a>"));
+      "<a href=\"#problems\" style=\"color:%1;text-decoration:none\">"
+      "E:0&nbsp;&nbsp;W:0&nbsp;&nbsp;I:0&nbsp;&nbsp;H:0</a>")
+          .arg(ThemeManager::Instance().Active().statusbar_text.name()));
   connect(status_problems_, &QLabel::linkActivated, this,
           [](const QString &) { open_problems(); });
   sb->addPermanentWidget(status_problems_);
@@ -641,12 +740,13 @@ void MainWindow::SetupStatusBar() {
       const auto c = problems_aggregator_->CountAll();
       status_problems_->setText(
           QStringLiteral(
-              "<a href=\"#problems\" style=\"color:inherit;text-decoration:none\">"
+              "<a href=\"#problems\" style=\"color:%5;text-decoration:none\">"
               "E:%1&nbsp;&nbsp;W:%2&nbsp;&nbsp;I:%3&nbsp;&nbsp;H:%4</a>")
               .arg(c.errors)
               .arg(c.warnings)
               .arg(c.information)
-              .arg(c.hints));
+              .arg(c.hints)
+              .arg(ThemeManager::Instance().Active().statusbar_text.name()));
     });
     connect(problems_panel_, &ProblemsPanel::OpenFileRequested, this,
             [this](const QString &file, int line, int column) {
@@ -884,6 +984,35 @@ void MainWindow::SetupConnections() {
             }
           });
 
+
+  connect(topology_panel_, &TopologyPanel::DefinitionRequested, this,
+          [this](const QString &qualified, const QString &context_file) {
+    const int separator = qualified.indexOf(QStringLiteral("::"));
+    if (separator < 1) return;
+    const auto language = qualified.left(separator);
+    const auto symbol = qualified.mid(separator + 2);
+    const auto synthetic = QStringLiteral("CALL(%1, %2)").arg(language, symbol).toStdString();
+    auto docs = compiler_service_->InspectSymbol(symbol.toStdString(), context_file.toStdString(),
+                                                 synthetic, "poly", synthetic.size() - 1);
+    if (docs.empty()) {
+      status_message_->setText(tr("No source definition found for %1").arg(qualified));
+      return;
+    }
+    int selected = 0;
+    if (docs.size() > 1) {
+      QStringList choices;
+      for (const auto &doc : docs)
+        choices << QStringLiteral("%1  —  %2:%3").arg(QString::fromStdString(doc.signature),
+                    QString::fromStdString(doc.location.file)).arg(doc.location.line);
+      bool accepted = false;
+      const auto choice = QInputDialog::getItem(this, tr("Choose function definition"),
+          qualified, choices, 0, false, &accepted);
+      if (!accepted || (selected = choices.indexOf(choice)) < 0) return;
+    }
+    const auto &target = docs[static_cast<std::size_t>(selected)].location;
+    NavigateToSource(QString::fromStdString(target.file), target.line, target.column);
+  });
+
   // Topology panel: open generated .poly file in editor
   connect(topology_panel_, &TopologyPanel::OpenFileRequested, this,
           [this](const QString &file_path) {
@@ -979,7 +1108,7 @@ void MainWindow::SetupConnections() {
   // File browser - generate topology for a .poly file
   connect(file_browser_, &FileBrowser::GenerateTopologyRequested, this,
           [this](const QString &ploy_path) {
-            panel_manager_->ShowPanel("topology");
+            SetWorkspaceView(QStringLiteral("split"));
             UpdateViewActionChecks();
             topology_panel_->LoadFromFile(ploy_path);
           });
@@ -1379,13 +1508,16 @@ void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
 void MainWindow::OpenFile() {
   QStringList paths = QFileDialog::getOpenFileNames(
       this, "Open File", QString(),
-      "All Supported Files (*.poly *.ploy *.cpp *.h *.hpp *.c *.py *.rs *.java *.cs);;"
+      "All Supported Files (*.poly *.ploy *.cpp *.h *.hpp *.c *.py *.rs *.java *.cs *.go *.js *.mjs *.rb);;"
       "Poly Files (*.poly *.ploy);;"
       "C++ Files (*.cpp *.h *.hpp *.c);;"
       "Python Files (*.py);;"
       "Rust Files (*.rs);;"
       "Java Files (*.java);;"
       "C# Files (*.cs);;"
+      "Go Files (*.go);;"
+      "JavaScript Files (*.js *.mjs);;"
+      "Ruby Files (*.rb);;"
       "All Files (*)");
 
   for (const QString &path : paths) {
@@ -1467,6 +1599,9 @@ void MainWindow::SaveAs() {
                                               "Rust Files (*.rs);;"
                                               "Java Files (*.java);;"
                                               "C# Files (*.cs);;"
+      "Go Files (*.go);;"
+      "JavaScript Files (*.js *.mjs);;"
+      "Ruby Files (*.rb);;"
                                               "All Files (*)");
 
   if (path.isEmpty())
@@ -1534,16 +1669,23 @@ void MainWindow::CloseTab(int index) {
     }
   }
 
+  QWidget *closed_widget = editor_tabs_->widget(index);
+  if (auto *editor = EditorAt(index)) {
+    compiler_service_->ForgetWorkspaceBuffer(editor->FilePath().toStdString());
+  }
   tab_info_.erase(index);
-  editor_tabs_->removeTab(index);
 
-  // Re-index remaining tabs
+  // Re-index remaining tabs before currentChanged can query their metadata.
   std::unordered_map<int, TabInfo> new_map;
   for (auto &[key, val] : tab_info_) {
     int new_key = (key > index) ? key - 1 : key;
     new_map[new_key] = std::move(val);
   }
   tab_info_ = std::move(new_map);
+  editor_tabs_->removeTab(index);
+  // removeTab does not delete the page. Release its source-index / hover timers
+  // so a discarded buffer cannot overwrite docs after the tab has closed.
+  delete closed_widget;
 
   if (editor_tabs_->count() == 0) {
     NewFile();
@@ -1598,6 +1740,8 @@ int MainWindow::OpenFileInTab(const QString &path) {
     compiler_service_->IndexWorkspaceFile(path.toStdString(), content.toStdString(),
                                           language.toStdString());
   }
+
+  OnTabChanged(index);
 
   // Hand off to the LSP bridge: opens the file with the configured server
   // for this language and arms the debounced didChange pipeline.
@@ -1706,125 +1850,33 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
   editor->SetCompilerService(compiler_service_.get());
   editor->SetLanguage(canonical_language.toStdString());
 
-  // Handle go-to-definition requests
-  connect(
-      editor, &CodeEditor::GoToDefinitionRequested, this,
-      [this](const QString &symbol, int line, int col) {
-        Q_UNUSED(line)
-        Q_UNUSED(col)
-
-        CodeEditor *ed = CurrentEditor();
-        if (!ed)
-          return;
-
-        int idx = editor_tabs_->currentIndex();
-        auto info_it = tab_info_.find(idx);
-        std::string current_file =
-            info_it != tab_info_.end() ? info_it->second.file_path.toStdString() : std::string();
-        std::string current_lang =
-            info_it != tab_info_.end() ? info_it->second.language.toStdString() : std::string();
-        std::string source = ed->toPlainText().toStdString();
-
-        // Use CompilerService::FindDefinition for cross-file resolution
-        auto def = compiler_service_->FindDefinition(symbol.toStdString(), current_file, source,
-                                                     current_lang);
-
-        if (def.found) {
-          if (def.file == current_file || def.file.empty()) {
-            // Navigate within current file
-            QTextBlock block = ed->document()->findBlockByNumber(static_cast<int>(def.line) - 1);
-            if (block.isValid()) {
-              QTextCursor cursor(block);
-              ed->setTextCursor(cursor);
-              ed->centerCursor();
-              ed->setFocus();
-            }
-          } else {
-            // Open the target file and navigate to definition line
-            int tab_idx = OpenFileInTab(QString::fromStdString(def.file));
-            if (tab_idx >= 0) {
-              editor_tabs_->setCurrentIndex(tab_idx);
-              CodeEditor *target_ed = EditorAt(tab_idx);
-              if (target_ed) {
-                QTextBlock block =
-                    target_ed->document()->findBlockByNumber(static_cast<int>(def.line) - 1);
-                if (block.isValid()) {
-                  QTextCursor cursor(block);
-                  target_ed->setTextCursor(cursor);
-                  target_ed->centerCursor();
-                  target_ed->setFocus();
-                }
-              }
-            }
-          }
-          return;
-        }
-
-        // Definition not found - show tooltip
-        QToolTip::showText(ed->mapToGlobal(ed->cursorRect().topLeft()),
-                           QString("Definition of '%1' not found").arg(symbol), ed, QRect(), 2000);
-      });
-
-  // ── Navigation: implementation / references / peek (demand 2026-04-28-22) ──
-  // For the v1 cut these reuse the same cross-file resolution path the
-  // GoToDefinition handler exercises; the underlying polyls request maps
-  // back to definition for non-LINK targets, so behaviour is consistent.
-  auto navigate_via_definition = [this](const QString &symbol, const QString &label) {
-    CodeEditor *ed = CurrentEditor();
-    if (!ed) return;
-    int idx = editor_tabs_->currentIndex();
-    auto info_it = tab_info_.find(idx);
-    std::string current_file =
-        info_it != tab_info_.end() ? info_it->second.file_path.toStdString() : std::string();
-    std::string current_lang =
-        info_it != tab_info_.end() ? info_it->second.language.toStdString() : std::string();
-    std::string source = ed->toPlainText().toStdString();
-    auto def = compiler_service_->FindDefinition(symbol.toStdString(), current_file, source,
-                                                  current_lang);
-    if (!def.found) {
-      QToolTip::showText(ed->mapToGlobal(ed->cursorRect().topLeft()),
-                         QString("%1 of '%2' not found").arg(label, symbol),
-                         ed, QRect(), 2000);
-      return;
-    }
-    if (def.file == current_file || def.file.empty()) {
-      QTextBlock block = ed->document()->findBlockByNumber(static_cast<int>(def.line) - 1);
-      if (block.isValid()) {
-        QTextCursor cursor(block);
-        ed->setTextCursor(cursor);
-        ed->centerCursor();
-        ed->setFocus();
-      }
-      return;
-    }
-    int tab_idx = OpenFileInTab(QString::fromStdString(def.file));
-    if (tab_idx >= 0) {
-      editor_tabs_->setCurrentIndex(tab_idx);
-      CodeEditor *target_ed = EditorAt(tab_idx);
-      if (target_ed) {
-        QTextBlock block = target_ed->document()->findBlockByNumber(
-            static_cast<int>(def.line) - 1);
-        if (block.isValid()) {
-          QTextCursor cursor(block);
-          target_ed->setTextCursor(cursor);
-          target_ed->centerCursor();
-          target_ed->setFocus();
-        }
-      }
-    }
-  };
-  connect(editor, &CodeEditor::GoToImplementationRequested, this,
-          [navigate_via_definition](const QString &sym, int, int) {
-            navigate_via_definition(sym, QStringLiteral("Implementation"));
+  connect(editor, &CodeEditor::GoToDefinitionRequested, this,
+          [this, editor](const QString &, int line, int column) {
+            ResolveEditorDefinition(editor, line, column, false);
           });
-  connect(editor, &CodeEditor::FindReferencesRequested, this,
-          [navigate_via_definition](const QString &sym, int, int) {
-            navigate_via_definition(sym, QStringLiteral("References"));
+  connect(editor, &CodeEditor::GoToImplementationRequested, this,
+          [this, editor](const QString &, int line, int column) {
+            ResolveEditorDefinition(editor, line, column, false);
           });
   connect(editor, &CodeEditor::PeekDefinitionRequested, this,
-          [navigate_via_definition](const QString &sym, int, int) {
-            navigate_via_definition(sym, QStringLiteral("Peek"));
+          [this, editor](const QString &, int line, int column) {
+            ResolveEditorDefinition(editor, line, column, true);
           });
+  connect(editor, &CodeEditor::OpenDefinitionLocation, this, &MainWindow::NavigateToSource);
+  connect(editor, &CodeEditor::FindReferencesRequested, this,
+          [this](const QString &, int, int) {
+            status_message_->setText(tr("Workspace reference search requires the language server."));
+          });
+  auto *index_timer = new QTimer(editor);
+  index_timer->setSingleShot(true);
+  index_timer->setInterval(180);
+  connect(editor, &QPlainTextEdit::textChanged, index_timer, [index_timer]() { index_timer->start(); });
+  connect(index_timer, &QTimer::timeout, this, [this, editor, canonical_language]() {
+    if (!editor->FilePath().isEmpty()) {
+      compiler_service_->IndexWorkspaceFile(editor->FilePath().toStdString(),
+          editor->toPlainText().toStdString(), canonical_language.toStdString());
+    }
+  });
 
   // ── Refactor: rename / extract function (demand 2026-04-28-23) ─────
   // Rename presents a confirmation dialog with the affected files
@@ -2375,14 +2427,14 @@ void MainWindow::ToggleTerminal() {
 
 void MainWindow::ToggleToolBar() {
   main_toolbar_->setVisible(!main_toolbar_->isVisible());
-  QSettings settings("PolyglotCompiler", "IDE");
+  auto settings = WindowSettings();
   settings.setValue("appearance/show_toolbar", main_toolbar_->isVisible());
   UpdateViewActionChecks();
 }
 
 void MainWindow::ToggleStatusBar() {
   statusBar()->setVisible(!statusBar()->isVisible());
-  QSettings settings("PolyglotCompiler", "IDE");
+  auto settings = WindowSettings();
   settings.setValue("appearance/show_statusbar", statusBar()->isVisible());
   UpdateViewActionChecks();
 }
@@ -2392,7 +2444,7 @@ void MainWindow::ToggleLineNumbers() {
   if (editor) {
     editor->SetLineNumbersVisible(!editor->LineNumbersVisible());
     action_toggle_linenumbers_->setChecked(editor->LineNumbersVisible());
-    QSettings settings("PolyglotCompiler", "IDE");
+    auto settings = WindowSettings();
     settings.setValue("editor/show_line_numbers", editor->LineNumbersVisible());
   }
 }
@@ -2403,7 +2455,7 @@ void MainWindow::ToggleWordWrap() {
     bool wrap = editor->lineWrapMode() == QPlainTextEdit::NoWrap;
     editor->setLineWrapMode(wrap ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
     action_toggle_wordwrap_->setChecked(wrap);
-    QSettings settings("PolyglotCompiler", "IDE");
+    auto settings = WindowSettings();
     settings.setValue("editor/word_wrap", wrap);
   }
 }
@@ -2730,7 +2782,8 @@ void MainWindow::DebugStepOut() {
 // ============================================================================
 
 void MainWindow::ToggleTopologyPanel() {
-  panel_manager_->TogglePanel("topology");
+  topology_panel_->setVisible(!topology_panel_->isVisible());
+  source_pane_->show();
   UpdateViewActionChecks();
 }
 
@@ -2760,7 +2813,7 @@ void MainWindow::OpenTopologyForCurrentFile() {
     return;
   }
 
-  panel_manager_->ShowPanel("topology");
+  SetWorkspaceView(QStringLiteral("split"));
   UpdateViewActionChecks();
   topology_panel_->LoadFromFile(it->second.file_path);
 }
@@ -2821,6 +2874,13 @@ void MainWindow::ShowShortcuts() {
 // ============================================================================
 
 void MainWindow::OnTabChanged(int index) {
+  if (file_breadcrumb_ && editor_tabs_->widget(index)) {
+    const auto info = tab_info_.find(index);
+    const QString path = info != tab_info_.end() ? info->second.file_path : QString();
+    file_breadcrumb_->setText(path.isEmpty() ? editor_tabs_->tabText(index) :
+        QDir(file_browser_->RootPath()).relativeFilePath(path).replace('/', QStringLiteral("  /  ")));
+    file_breadcrumb_->setToolTip(path);
+  }
   if (index < 0)
     return;
 
@@ -2992,6 +3052,13 @@ void MainWindow::ApplyEditorSettings(CodeEditor *editor) {
   QFont editor_font = editor->font();
   editor_font.setFamily(svc.GetString("editor.fontFamily", editor_font.family()));
   editor_font.setPointSize(qBound(8, svc.GetInt("editor.fontSize", 11), 32));
+  if (qApp->property("polyui.headless").toBool()) {
+    editor_font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+#ifdef Q_OS_MAC
+    editor_font.setFamily(QStringLiteral("Menlo"));
+#endif
+    editor_font.setPointSize(11);
+  }
 
   editor->SetEditorFont(editor_font);
   editor->SetTabWidth(tab_width);
@@ -3031,7 +3098,7 @@ void MainWindow::UpdateViewActionChecks() {
     action_toggle_debug_->setChecked(panel_manager_->IsPanelActive("debug"));
   }
   if (action_toggle_topology_) {
-    action_toggle_topology_->setChecked(panel_manager_->IsPanelActive("topology"));
+    action_toggle_topology_->setChecked(topology_panel_->isVisible());
   }
   if (action_toggle_profiler_) {
     action_toggle_profiler_->setChecked(panel_manager_->IsPanelActive("profiler"));
@@ -3076,7 +3143,7 @@ void MainWindow::AutoSaveModifiedFiles() {
 }
 
 void MainWindow::ApplySettings() {
-  QSettings settings("PolyglotCompiler", "IDE");
+  auto settings = WindowSettings();
 
   // Global font preferences
   QFont app_font = QApplication::font();
@@ -3108,7 +3175,7 @@ void MainWindow::ApplySettings() {
       theme_names[theme_idx].toStdString());
 
   // Compiler defaults
-  const int default_target = qBound(0, settings.value("compiler/default_target", 0).toInt(),
+  const int default_target = qBound(0, settings.value("compiler/default_target", QSysInfo::currentCpuArchitecture().contains("arm") ? 1 : 0).toInt(),
                                     qMax(0, target_combo_->count() - 1));
   const int default_opt = qBound(0, settings.value("compiler/default_opt_level", 0).toInt(),
                                  qMax(0, opt_level_combo_->count() - 1));
@@ -3209,8 +3276,18 @@ void MainWindow::ApplyTheme() {
   const auto &tm = ThemeManager::Instance();
   const auto &tc = tm.Active();
 
-  // Main window background
-  setStyleSheet(QString("QMainWindow { background: %1; }").arg(tc.background.name()));
+  setStyleSheet(QString(
+      "QMainWindow { background:%1; }"
+      "QWidget#sourceHeader { background:%2; border-bottom:1px solid %3; }"
+      "QWidget#sourceHeader QPushButton { color:%4; padding:4px 10px; background:%1; border:1px solid %3; border-radius:5px; }"
+      "QWidget#sourceHeader QPushButton:hover { background:%5; }"
+      "QLabel#workspaceBrand { font-weight:700; letter-spacing:1px; color:%4; }")
+      .arg(tc.background.name(), tc.surface.name(), tc.border.name(), tc.text.name(), tc.selection.name()));
+  if (activity_toolbar_) activity_toolbar_->setStyleSheet(QString(
+      "QToolBar { background:%1; border:0; border-right:1px solid %2; padding:7px 4px; spacing:12px; }"
+      "QToolButton { padding:9px; border:0; border-radius:6px; }"
+      "QToolButton:hover { background:%3; }")
+      .arg(tc.surface.name(), tc.border.name(), tc.selection.name()));
 
   // Menu bar
   menuBar()->setStyleSheet(tm.MenuBarStylesheet());
@@ -3269,6 +3346,7 @@ void MainWindow::ApplyTheme() {
     main_splitter_->setStyleSheet(splitter_ss);
   if (vertical_splitter_)
     vertical_splitter_->setStyleSheet(splitter_ss);
+  if (workbench_splitter_) workbench_splitter_->setStyleSheet(splitter_ss);
 
   // Editors - apply background and selection via stylesheet, text color
   // via QPalette so that QSyntaxHighlighter formats take precedence.
@@ -3377,7 +3455,8 @@ void MainWindow::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
 // ============================================================================
 
 void MainWindow::RestoreState() {
-  QSettings settings("PolyglotCompiler", "IDE");
+  if (qApp->property("polyui.headless").toBool()) return;
+  auto settings = WindowSettings();
   if (settings.contains("geometry")) {
     restoreGeometry(settings.value("geometry").toByteArray());
   }
@@ -3390,6 +3469,9 @@ void MainWindow::RestoreState() {
   if (settings.contains("layout/vertical_splitter")) {
     vertical_splitter_->restoreState(settings.value("layout/vertical_splitter").toByteArray());
   }
+
+  if (settings.contains("layout/workbench_splitter"))
+    workbench_splitter_->restoreState(settings.value("layout/workbench_splitter").toByteArray());
 
   // Safeguard: if restored splitter state collapsed the file browser to zero
   // width, reset to a sensible default so the explorer is always visible.
@@ -3451,11 +3533,13 @@ void MainWindow::RestoreState() {
 }
 
 void MainWindow::SaveState() {
-  QSettings settings("PolyglotCompiler", "IDE");
+  if (qApp->property("polyui.headless").toBool()) return;
+  auto settings = WindowSettings();
   settings.setValue("geometry", saveGeometry());
   settings.setValue("window_state", QMainWindow::saveState());
   settings.setValue("layout/main_splitter", main_splitter_->saveState());
   settings.setValue("layout/vertical_splitter", vertical_splitter_->saveState());
+  settings.setValue("layout/workbench_splitter", workbench_splitter_->saveState());
   settings.setValue("workspace/root_path", file_browser_->RootPath());
   settings.setValue("view/show_file_browser", file_browser_->isVisible());
   settings.setValue("view/show_bottom_panel", bottom_tabs_->isVisible());
@@ -3604,6 +3688,87 @@ void MainWindow::InitializePlugins() {
       pm.ActivatePlugin(info->id);
     }
   }
+}
+
+
+void MainWindow::NavigateToSource(const QString &path, int line, int column) {
+  const int index = path.isEmpty() ? editor_tabs_->currentIndex() : OpenFileInTab(path);
+  if (auto *editor = EditorAt(index)) {
+    source_pane_->show();
+    editor_tabs_->setCurrentIndex(index);
+    const auto block = editor->document()->findBlockByNumber(qMax(0, line - 1));
+    if (!block.isValid()) return;
+    QTextCursor cursor(block);
+    cursor.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor,
+                        qBound(0, column - 1, qMax(0, block.length() - 1)));
+    editor->setTextCursor(cursor);
+    editor->centerCursor();
+    editor->setFocus();
+  }
+}
+
+void MainWindow::ResolveEditorDefinition(CodeEditor *editor, int line, int column, bool peek) {
+  if (!editor) return;
+  auto block = editor->document()->findBlockByNumber(line);
+  if (!block.isValid()) return;
+  QTextCursor cursor(block);
+  cursor.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor,
+                      qBound(0, column, qMax(0, block.length() - 1)));
+  auto docs = editor->InspectAtCursor(cursor);
+  if (docs.empty()) {
+    status_message_->setText(tr("No source definition found for %1. Check the module path and source files.")
+                            .arg(editor->SymbolAtCursor(cursor)));
+    return;
+  }
+  int choice = 0;
+  if (docs.size() > 1) {
+    QStringList candidates;
+    for (const auto &doc : docs)
+      candidates << QStringLiteral("%1  —  %2:%3")
+          .arg(QString::fromStdString(doc.signature), QString::fromStdString(doc.location.file))
+          .arg(doc.location.line);
+    bool accepted = false;
+    const QString chosen = QInputDialog::getItem(this, tr("Choose function definition"),
+        tr("Several source definitions match this symbol:"), candidates, 0, false, &accepted);
+    if (!accepted) return;
+    choice = candidates.indexOf(chosen);
+    if (choice < 0) return;
+  }
+  const auto &doc = docs[static_cast<std::size_t>(choice)];
+  if (peek) editor->ShowInlineDefinition(doc);
+  else NavigateToSource(QString::fromStdString(doc.location.file), doc.location.line, doc.location.column);
+}
+
+void MainWindow::OpenWorkspaceFile(const QString &path) {
+  const auto absolute = QFileInfo(path).absoluteFilePath();
+  if (OpenFileInTab(absolute) >= 0 && IsPolySourcePath(absolute))
+    topology_panel_->LoadFromFile(absolute);
+}
+
+void MainWindow::SetWorkspaceView(const QString &view) {
+  // Keep the source header reachable in every mode so the user can restore
+  // the split without hunting through menus.
+  source_pane_->show();
+  if (view == QStringLiteral("code")) {
+    topology_panel_->hide();
+  } else {
+    topology_panel_->show();
+    const int total = qMax(900, workbench_splitter_->width());
+    workbench_splitter_->setSizes(view == QStringLiteral("flow") ? QList<int>{320, total - 320}
+                                    : QList<int>{total / 2, total / 2});
+  }
+  UpdateViewActionChecks();
+}
+
+void MainWindow::PreviewSymbol(const QString &symbol) {
+  auto *editor = CurrentEditor();
+  if (!editor || symbol.isEmpty()) return;
+  auto cursor = editor->document()->find(symbol);
+  if (cursor.isNull()) return;
+  cursor.clearSelection();
+  editor->setTextCursor(cursor);
+  editor->centerCursor();
+  ResolveEditorDefinition(editor, cursor.blockNumber(), cursor.positionInBlock(), true);
 }
 
 } // namespace polyglot::tools::ui

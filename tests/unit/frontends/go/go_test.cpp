@@ -583,3 +583,44 @@ TEST_CASE("Go lowering fails closed for unresolved scalar boundaries",
         CHECK(unsupported);
     }
 }
+
+TEST_CASE("Go nested logical expressions use branch and PHI control flow",
+          "[go][lowering][shortcircuit]") {
+  Diagnostics diagnostics;
+  auto context = LowerContext(R"(
+package main
+func classify(value int) bool {
+  return value > 0 && (value < 4 || value == 7) && !false
+}
+)", diagnostics);
+  for (const auto &diagnostic : diagnostics.All()) UNSCOPED_INFO(Diagnostics::Format(diagnostic));
+  REQUIRE_FALSE(diagnostics.HasErrors());
+  std::string error;
+  const bool valid = polyglot::ir::Verify(context, &error);
+  INFO(error); CHECK(valid);
+  size_t phi_count = 0;
+  for (const auto &fn : context.Functions())
+    for (const auto &block : fn->blocks) phi_count += block->phis.size();
+  CHECK(phi_count == 3);
+}
+
+TEST_CASE("Go native text bridge distinguishes interpreted and raw literals", "[go][lowering][native-text]") {
+  Diagnostics diagnostics;
+  auto context = LowerContext(R"go(
+package main
+func main() {
+  print_text("line\n")
+  print_text(`raw\n`)
+}
+)go", diagnostics);
+  for (const auto &diagnostic : diagnostics.All()) UNSCOPED_INFO(Diagnostics::Format(diagnostic));
+  REQUIRE_FALSE(diagnostics.HasErrors());
+  bool escaped = false, raw = false;
+  for (const auto &global : context.Globals()) {
+    if (auto text = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(global->initializer)) {
+      escaped |= text->data == "line\n";
+      raw |= text->data == "raw\\n";
+    }
+  }
+  CHECK(escaped); CHECK(raw);
+}

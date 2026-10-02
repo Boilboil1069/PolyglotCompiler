@@ -40,7 +40,8 @@ struct NativeFileRuntimeBlob {
 /**
  * Build the syscall-only runtime for a target.
  *
- * Supported today: x86_64 Linux and x86_64 Darwin/macOS.  `target_arch` and
+ * Supported today: x86_64 and ARM64 on Linux and Darwin/macOS.
+ * ARM64 additionally exports bounded integer arrays and argument parsing.  `target_arch` and
  * `target_os` are case-insensitive and accept common aliases.  On an
  * unsupported target the returned blob is empty and `error` explains why;
  * callers must surface that as a compile error rather than emit unresolved

@@ -1421,6 +1421,7 @@ std::shared_ptr<Expression> GoParser::ParseOperand() {
     auto lit = std::make_shared<BasicLit>();
     lit->loc = loc;
     lit->kind = BasicLit::Kind::kString;
+    lit->is_raw_string = !current_.raw_lexeme.empty() && current_.raw_lexeme.front() == '`';
     lit->value = current_.lexeme;
     Advance();
     return lit;

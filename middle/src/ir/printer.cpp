@@ -172,7 +172,9 @@ void PrintInst(const Instruction &inst, std::ostream &os) {
   if (inst.HasResult()) {
     os << inst.name << " = ";
   }
-  if (auto bin = dynamic_cast<const BinaryInstruction *>(&inst)) {
+  if (auto constant = dynamic_cast<const ConstantInstruction *>(&inst)) {
+    os << "const_bits " << constant->bits;
+  } else if (auto bin = dynamic_cast<const BinaryInstruction *>(&inst)) {
     os << BinOpToString(bin->op) << " ";
     print_ops(bin->operands);
   } else if (auto phi = dynamic_cast<const PhiInstruction *>(&inst)) {

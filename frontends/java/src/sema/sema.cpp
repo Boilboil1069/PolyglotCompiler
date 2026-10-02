@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     sema.cpp
  * @brief    Java language frontend implementation
@@ -33,6 +34,7 @@ public:
   void Run() {
     scope_stack_.push_back({ScopeKind::kModule});
     Syms().EnterScope("<java-module>", ScopeKind::kModule);
+    frontends::RegisterNativeBuiltins(Syms(), Types(), "java");
 
     // Register package scope
     if (module_.package_decl) {
@@ -626,7 +628,7 @@ private:
       if (!v.empty() && v[0] == '"')
         return Type::String();
       if (!v.empty() && v[0] == '\'')
-        return Type::Int();
+        return Type::Int(32, true);
       // Number
       if (v.find('.') != std::string::npos || v.find('e') != std::string::npos ||
           v.find('E') != std::string::npos) {
@@ -635,8 +637,8 @@ private:
         return Type::Float();   // double
       }
       if (!v.empty() && (v.back() == 'l' || v.back() == 'L'))
-        return Type::Int(); // long
-      return Type::Int();
+        return Type::Int(64, true); // long
+      return Type::Int(32, true);
     }
 
     if (auto unary = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
@@ -665,7 +667,8 @@ private:
       if (left.kind == core::TypeKind::kFloat || right.kind == core::TypeKind::kFloat) {
         return Type::Float();
       }
-      return Type::Int();
+      return Type::Int(std::max(32, std::max(left.bit_width, right.bit_width)),
+                       left.is_signed && right.is_signed);
     }
 
     if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {

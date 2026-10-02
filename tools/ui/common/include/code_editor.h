@@ -21,6 +21,10 @@
 #include "tools/ui/common/include/compiler_service.h"
 
 class QTimer;
+class QContextMenuEvent;
+class QFrame;
+class QLabel;
+class QTextBrowser;
 
 namespace polyglot::tools::ui {
 
@@ -100,6 +104,12 @@ public:
   void RequestHoverAtCursor();
   /// Manual signature help request bound to Ctrl+Shift+Space.
   void RequestSignatureHelpAtCursor();
+  void ShowInlineDefinition(const cross_language::FunctionDocumentation &definition);
+  void HideInlineDefinition();
+  bool InlineDefinitionVisible() const;
+  std::vector<cross_language::FunctionDocumentation> InspectAtCursor(const QTextCursor &cursor) const;
+  QString SymbolAtCursor(const QTextCursor &cursor) const;
+
 
   // ── Diagnostics overlay (squiggly lines + inline hints) ──────────────
   void SetDiagnostics(const std::vector<DiagnosticInfo> &diagnostics);
@@ -122,6 +132,7 @@ public:
   QPointF ContentOffset() const { return contentOffset(); }
 
 signals:
+  void OpenDefinitionLocation(const QString &file, int line, int column);
   void GoToDefinitionRequested(const QString &symbol, int line, int column);
   /// Shift+F12 — list all references to the identifier under the caret.
   void FindReferencesRequested(const QString &symbol, int line, int column);
@@ -143,6 +154,7 @@ protected:
   void paintEvent(QPaintEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
+  void contextMenuEvent(QContextMenuEvent *event) override;
 
 private slots:
   void UpdateLineNumberAreaWidth(int new_block_count);
@@ -159,6 +171,9 @@ private:
 
   // Compute the word (prefix) at the current cursor position
   QString WordUnderCursor() const;
+  void LayoutInlineDefinition();
+  bool ShowSourceHover(const QTextCursor &cursor, const QPoint &anchor);
+
 
   // Draw wavy underline for a text range (used by diagnostics overlay)
   void DrawWavyUnderline(QPainter &painter, const QRectF &rect, const QColor &color) const;
@@ -173,6 +188,14 @@ private:
   SignatureHelpWidget *signature_widget_{nullptr};
   QTimer *hover_timer_{nullptr};
   QPoint last_hover_pos_;
+  QTimer *source_doc_timer_{nullptr};
+  QFrame *inline_definition_{nullptr};
+  QLabel *inline_title_{nullptr};
+  QTextBrowser *inline_doc_{nullptr};
+  QPlainTextEdit *inline_source_{nullptr};
+  cross_language::FunctionDocumentation inline_target_;
+  std::string last_inline_key_;
+
   bool waiting_ctrl_k_chord_{false};
   int completion_match_strategy_{1};  // Subsequence by default.
   std::string language_;

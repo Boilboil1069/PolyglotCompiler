@@ -62,6 +62,10 @@ public:
   std::shared_ptr<CastInstruction> MakeCast(CastInstruction::CastKind kind,
                                             const std::string &value, const IRType &dest_type,
                                             const std::string &name = "");
+  // IEEE unary negation toggles the sign bit, including zero and NaN payloads.
+  std::shared_ptr<CastInstruction> MakeFloatNegate(const std::string &value,
+                                                  const IRType &type,
+                                                  const std::string &name = "");
   std::shared_ptr<CallInstruction> MakeCall(const std::string &callee,
                                             const std::vector<std::string> &args,
                                             const IRType &ret_type, const std::string &name = "",
@@ -127,7 +131,20 @@ public:
 
   // Set the active function that CreateBlock will add blocks to.
   // When set, CreateBlock targets this function instead of the default one.
-  void SetCurrentFunction(const std::shared_ptr<Function> &fn) { active_function_ = fn; }
+  void SetCurrentFunction(const std::shared_ptr<Function> &fn) {
+    if (active_function_ != fn) {
+      names_.clear();
+      if (fn) {
+        for (const auto &parameter : fn->params) names_.emplace(parameter, 1);
+        for (const auto &block : fn->blocks) {
+          for (const auto &phi : block->phis) names_.emplace(phi->name, 1);
+          for (const auto &instruction : block->instructions)
+            if (instruction->HasResult()) names_.emplace(instruction->name, 1);
+        }
+      }
+    }
+    active_function_ = fn;
+  }
   void ClearCurrentFunction() { active_function_.reset(); }
   std::shared_ptr<Function> CurrentFunction() {
     return active_function_ ? active_function_ : context_.DefaultFunction();
@@ -136,6 +153,8 @@ public:
 private:
   std::shared_ptr<BasicBlock> CurrentBlock();
   std::string NextTempName(const std::string &hint);
+  std::string UniqueName(const std::string &hint);
+  std::unordered_map<std::string, unsigned> names_;
   IRContext &context_;
   size_t temp_index_{0};
   std::shared_ptr<BasicBlock> insert_block_{};

@@ -557,7 +557,13 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
       std::uint32_t r_pcrel;
       std::uint32_t r_length;
       std::uint32_t r_type;
-      if (rel.type == 1) {
+      if (is_arm64_ && (rel.type == 2 || rel.type == 3)) {
+        // Native MC hints 2/3 are the ADRP + ADD address pair. Encoding
+        // either as an absolute pointer overwrites instructions at link time.
+        r_pcrel = rel.type == 2;
+        r_length = 2;
+        r_type = rel.type == 2 ? 3 : 4; // ARM64_RELOC_PAGE21 / PAGEOFF12
+      } else if (rel.type == 1) {
         // PC-relative branch
         r_pcrel = 1;
         r_length = 2; // 2^2 = 4 bytes

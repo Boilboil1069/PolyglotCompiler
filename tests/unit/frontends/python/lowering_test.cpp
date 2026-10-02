@@ -17,6 +17,38 @@ using polyglot::python::PythonParser;
 using polyglot::python::LowerToIR;
 using polyglot::ir::IRContext;
 
+TEST_CASE("Python native string literals retain escapes, raw prefixes and empty text", "[python][lowering][native-string]") {
+    const std::string source = R"PY(
+def main() -> int:
+    print_text("hello\n")
+    print_text(r"raw\n")
+    print_text("\u4e2d")
+    print_text("")
+    return 0
+)PY";
+    Diagnostics diags;
+    PythonLexer lexer(source, "<test>", &diags);
+    PythonParser parser(lexer, diags); parser.ParseModule();
+    auto module = parser.TakeModule(); REQUIRE(module); REQUIRE_FALSE(diags.HasErrors());
+    IRContext ctx; LowerToIR(*module, ctx, diags); REQUIRE_FALSE(diags.HasErrors());
+    std::unordered_set<std::string> strings;
+    for (const auto &global : ctx.Globals())
+        if (auto literal = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(global->initializer)) strings.insert(literal->data);
+    CHECK(strings.count("hello\n") == 1);
+    CHECK(strings.count("raw\\n") == 1);
+    CHECK(strings.count("中") == 1);
+    CHECK(strings.count("") == 1);
+}
+
+TEST_CASE("Python native text rejects bytes and NUL literals", "[python][lowering][native-string]") {
+    for (const auto &literal : {"b\"hello\"", "\"\\u0000\""}) {
+        const std::string source = "def main() -> int:\n    print_text(" + std::string(literal) + ")\n    return 0\n";
+        Diagnostics diags; PythonLexer lexer(source, "<test>", &diags);
+        PythonParser parser(lexer, diags); parser.ParseModule(); auto module = parser.TakeModule(); REQUIRE(module);
+        IRContext ctx; LowerToIR(*module, ctx, diags); CHECK(diags.HasErrors());
+    }
+}
+
 namespace {
 
 // Helper to parse and lower Python code
@@ -107,7 +139,10 @@ def test():
     auto ir = GetIR(ctx);
     INFO("IR:\n" << ir);
     REQUIRE(ir.find("test") != std::string::npos);
-    REQUIRE(ir.find("ret 42") != std::string::npos);
+    // Locals now have storage so mutations across loop back edges are visible.
+    REQUIRE(ir.find(", 42 : void") != std::string::npos);
+    REQUIRE(ir.find(" = load ") != std::string::npos);
+    REQUIRE(ir.find("ret load.") != std::string::npos);
     REQUIRE(ir.find("lit.") == std::string::npos);
 
     std::string verify_message;

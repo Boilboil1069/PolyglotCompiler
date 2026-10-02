@@ -1,3 +1,4 @@
+#include "tools/polyc/include/native_entry.h"
 /**
  * @file     compilation_pipeline.cpp
  * @brief    Compiler driver implementation
@@ -1404,6 +1405,14 @@ public:
       }
     }
 
+    if (config.mode == "link" && config.target_arch != "wasm" &&
+        config.target_arch != "wasm32" && config.target_arch != "wasm64" &&
+        !tools::PrepareNativeEntry(*ir_module, "poly", config.entry_symbol, diagnostics)) {
+      AppendDiagnostics(diagnostics, out.backend_diagnostics);
+      out.success = false;
+      return out;
+    }
+
     // Preserve the historical __ploy_rt_* hook ABI while publishing the
     // canonical language identifier in the hook payload.
     if (config.profile_instrument) {
@@ -1489,8 +1498,9 @@ public:
         lr.type = rel.type;
         lr.symbol = rel.symbol;
         lr.addend = rel.addend;
-        lr.is_pc_relative = (rel.type == 1);
-        lr.size = (rel.type == 1) ? 4 : 8;
+        const bool arm = config.target_arch == "arm64" || config.target_arch == "aarch64";
+        lr.is_pc_relative = rel.type == 1 || (arm && rel.type == 2);
+        lr.size = (rel.type == 1 || (arm && (rel.type == 2 || rel.type == 3))) ? 4 : 8;
         for (auto &obj : out.objects) {
           if (obj.name == rel.section || (rel.section.empty() && obj.name == ".text")) {
             obj.relocations.push_back(lr);
@@ -1518,11 +1528,17 @@ public:
     backends::TargetOptions backend_options;
     backend_options.emit = backends::EmitKind::kObject;
     backend_options.opt_level = config.opt_level;
+    backend_options.target_os = RuntimeTargetOS(config);
     backend_options.force = config.force;
-    // The driver-level --regalloc flag is wired into the backend through
-    // CompilationContext::Config in a follow-up sub-need; for now keep the
-    // historical default.
-    backend_options.reg_alloc = backends::RegAllocStrategy::kLinearScan;
+    backend_options.reg_alloc = config.reg_alloc;
+    if (config.reg_alloc == backends::RegAllocStrategy::kStack &&
+        config.target_arch != "arm64" && config.target_arch != "aarch64") {
+      diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
+          frontends::ErrorCode::kUnsupportedLowering, "stack allocation baseline requires ARM64");
+      AppendDiagnostics(diagnostics, out.backend_diagnostics);
+      out.success = false;
+      return out;
+    }
 
     backends::CompileResult bres = backend->Compile(*ir_module, backend_options);
 
@@ -1697,7 +1713,7 @@ public:
     // This matters as soon as a Poly module contains helper functions before
     // `main`, and it also keeps the generated executable honest when foreign
     // source objects are absorbed later by the linker.
-    for (const char *candidate : {"__ploy_main", "main", "entry"}) {
+    for (const char *candidate : {"__polyc_entry", "__ploy_main", "main", "entry"}) {
       const auto entry_it = sym_index.find(candidate);
       if (entry_it == sym_index.end())
         continue;
@@ -1837,8 +1853,7 @@ public:
       // staged pipeline persists assembly/object at this stage.
       std::ofstream ir_ofs(config.emit_ir_path, std::ios::binary | std::ios::trunc);
       if (ir_ofs.is_open()) {
-        ir_ofs << "; staged pipeline wrote backend output (IR text emitted in driver-level "
-                  "diagnostics mode)\n";
+        if (input.ir_ctx) ir::PrintModule(*input.ir_ctx, ir_ofs);
       }
     }
 
@@ -1910,7 +1925,7 @@ public:
             cmd += " --subsystem=" + config.subsystem;
           }
           if (!config.entry_symbol.empty()) {
-            cmd += " --entry " + config.entry_symbol;
+            cmd += " --entry __polyc_entry";
           }
           if (link_inputs.size() > 1) {
             cmd += " --allow-multiple-definition";
@@ -2031,7 +2046,19 @@ CompilationPipeline::CompilationPipeline(CompilationContext::Config config) {
   } else if (!context_.config.target_os.empty()) {
     context_.config.SetTargetOs(context_.config.target_os);
   } else {
-    context_.config.SetTargetTriple(HostTriple());
+    auto triple = HostTriple();
+    const auto &arch = context_.config.target_arch;
+    if (arch == "arm64" || arch == "aarch64") triple.arch = Arch::kAArch64;
+    else if (arch == "x86_64") triple.arch = Arch::kX86_64;
+    else if (arch == "wasm" || arch == "wasm32") { triple.arch = Arch::kWasm32; triple.os = OS::kWasi; }
+    else if (arch == "wasm64") { triple.arch = Arch::kWasm64; triple.os = OS::kWasi; }
+    else if (!arch.empty()) {
+      // Keep an unknown explicit architecture so backend lookup diagnoses it.
+      context_.config.target_triple = triple;
+    }
+    if (arch.empty() || arch == "arm64" || arch == "aarch64" || arch == "x86_64" ||
+        arch == "wasm" || arch == "wasm32" || arch == "wasm64")
+      context_.config.SetTargetTriple(triple);
   }
 
   context_.package_cache = std::make_shared<ploy::PackageDiscoveryCache>();

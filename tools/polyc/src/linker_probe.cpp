@@ -17,7 +17,7 @@
 namespace polyglot::tools::linker_probe {
 
 std::string ShellQuote(const std::string &p) {
-  if (p.find(' ') == std::string::npos)
+  if (!p.empty() && p.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-") == std::string::npos)
     return p;
 #if defined(_WIN32)
   // Windows CMD treats double quotes as the shell-quoting character; the

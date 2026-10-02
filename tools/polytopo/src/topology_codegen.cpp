@@ -66,8 +66,11 @@ std::string KindString(TopologyNode::Kind kind) {
     return "pipeline";
   case TopologyNode::Kind::kMapFunc:
     return "map_func";
-  case TopologyNode::Kind::kExternalCall:
-    return "external_call";
+  case TopologyNode::Kind::kExternalCall: return "external_call";
+  case TopologyNode::Kind::kBoundary: return "boundary";
+  case TopologyNode::Kind::kValue: return "value";
+  case TopologyNode::Kind::kOperation: return "operation";
+  case TopologyNode::Kind::kConversion: return "conversion";
   }
   return "unknown";
 }
@@ -699,8 +702,11 @@ TopologyNode::Kind ParseKind(const std::string &s) {
     return TopologyNode::Kind::kPipeline;
   if (s == "map_func")
     return TopologyNode::Kind::kMapFunc;
-  if (s == "external_call")
-    return TopologyNode::Kind::kExternalCall;
+  if (s == "external_call") return TopologyNode::Kind::kExternalCall;
+  if (s == "boundary") return TopologyNode::Kind::kBoundary;
+  if (s == "value") return TopologyNode::Kind::kValue;
+  if (s == "operation") return TopologyNode::Kind::kOperation;
+  if (s == "conversion") return TopologyNode::Kind::kConversion;
   return TopologyNode::Kind::kFunction;
 }
 
@@ -771,6 +777,16 @@ bool ParseJsonToGraph(const std::string &json_str, TopologyGraph &out_graph) {
             node.id = ReadJsonUint(json_str, pos);
           } else if (nkey == "name") {
             node.name = ReadJsonString(json_str, pos);
+          } else if (nkey == "display_name") {
+            node.display_name = ReadJsonString(json_str, pos);
+          } else if (nkey == "description") {
+            node.description = ReadJsonString(json_str, pos);
+          } else if (nkey == "context_node_id") {
+            node.context_node_id = ReadJsonUint(json_str, pos);
+          } else if (nkey == "file") {
+            node.loc.file = ReadJsonString(json_str, pos);
+          } else if (nkey == "line") {
+            node.loc.line = static_cast<uint32_t>(ReadJsonUint(json_str, pos));
           } else if (nkey == "language") {
             node.language = CanonicalTopologyLanguage(ReadJsonString(json_str, pos));
           } else if (nkey == "kind") {
@@ -873,6 +889,14 @@ bool ParseJsonToGraph(const std::string &json_str, TopologyGraph &out_graph) {
             edge.target_node_id = ReadJsonUint(json_str, pos);
           } else if (ekey == "target_port") {
             edge.target_port_id = ReadJsonUint(json_str, pos);
+          } else if (ekey == "value") {
+            edge.value_label = ReadJsonString(json_str, pos);
+          } else if (ekey == "relation") {
+            edge.relation = ReadJsonString(json_str, pos);
+          } else if (ekey == "conversion") {
+            edge.conversion_note = ReadJsonString(json_str, pos);
+          } else if (ekey == "context_node_id") {
+            edge.context_node_id = ReadJsonUint(json_str, pos);
           } else if (ekey == "status") {
             edge.status = ParseStatus(ReadJsonString(json_str, pos));
           } else {

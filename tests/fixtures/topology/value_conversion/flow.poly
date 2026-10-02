@@ -1,0 +1,8 @@
+IMPORT cpp::source;
+IMPORT python::calibration;
+
+FUNC calibrated_sample() -> FLOAT {
+    LET raw = CALL(cpp, source::read);
+    LET calibrated = CALL(python, calibration::scale, raw);
+    RETURN calibrated;
+}

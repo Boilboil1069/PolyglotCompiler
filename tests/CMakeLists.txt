@@ -154,6 +154,7 @@ set(UNIT_TEST_MIDDLE
 )
 
 set(UNIT_TEST_BACKENDS
+    unit/backends/native_arm64_test.cpp
     unit/backends/abi_calling_convention_test.cpp
     unit/backends/abi_relocation_test.cpp
     unit/backends/abi_verifier_test.cpp
@@ -439,6 +440,12 @@ add_executable(test_completion_ranker
 target_include_directories(test_completion_ranker PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(test_completion_ranker PRIVATE ${CATCH2_LIBS})
 
+add_executable(test_cross_language_navigation
+    unit/polyui/cross_language_navigator_test.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/cross_language/cross_language_navigator.cpp)
+target_include_directories(test_cross_language_navigation PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(test_cross_language_navigation PRIVATE ${CATCH2_LIBS})
+
 # -- Topology UI (requires Qt) -----------------------------------------------
 # DrillDownWindow / BreadcrumbBar tests need a QApplication and Qt widgets.
 find_package(Qt6 QUIET COMPONENTS Widgets)
@@ -719,6 +726,17 @@ add_test(NAME test_lsp               COMMAND test_lsp)
 add_test(NAME test_polyls            COMMAND test_polyls)
 add_test(NAME test_problems          COMMAND test_problems)
 add_test(NAME test_completion_ranker COMMAND test_completion_ranker)
+add_test(NAME test_cross_language_navigation COMMAND test_cross_language_navigation)
+if(TARGET polyui)
+    add_test(NAME test_polyui_workspace_smoke COMMAND $<TARGET_FILE:polyui>
+        --headless --ui-smoke
+        --folder ${CMAKE_SOURCE_DIR}/examples/editor_cross_language_demo
+        --file ${CMAKE_SOURCE_DIR}/examples/editor_cross_language_demo/order_flow.poly
+        --view split --peek subtotal
+        --screenshot ${CMAKE_BINARY_DIR}/ui-validation/workspace.png)
+    set_tests_properties(test_polyui_workspace_smoke PROPERTIES
+        TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "ui;integration")
+endif()
 if(TARGET test_topology_ui)
     add_test(NAME test_topology_ui   COMMAND test_topology_ui)
 endif()
@@ -740,7 +758,7 @@ set_tests_properties(test_polyls PROPERTIES LABELS "unit;polyls;lsp")
 set_tests_properties(test_problems PROPERTIES LABELS "unit;polyui;problems")
 set_tests_properties(test_completion_ranker PROPERTIES LABELS "unit;polyui;completion")
 if(TARGET test_topology_ui)
-    set_tests_properties(test_topology_ui PROPERTIES LABELS "unit;topology;ui")
+    set_tests_properties(test_topology_ui PROPERTIES LABELS "unit;topology;ui" ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 set_tests_properties(test_e2e PROPERTIES LABELS "unit;e2e")
 
@@ -778,3 +796,33 @@ add_test(NAME benchmark_full COMMAND ${CMAKE_COMMAND} -E env POLYBENCH_MODE=full
 set_tests_properties(benchmark_tests PROPERTIES LABELS "benchmark")
 set_tests_properties(benchmark_fast  PROPERTIES LABELS "benchmark;fast")
 set_tests_properties(benchmark_full  PROPERTIES LABELS "benchmark;full")
+
+# Execute the produced binaries, including nonzero checksum exit statuses.
+# This test covers the currently validated native AArch64 scalar pipeline.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND AND UNIX AND NOT CMAKE_CROSSCOMPILING
+   AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64)$")
+    add_test(NAME native_standalone_regression
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tests/native_programs/regression.py"
+            --polyc $<TARGET_FILE:polyc>
+            --output-root "${CMAKE_BINARY_DIR}/native-regression")
+    set_tests_properties(native_standalone_regression PROPERTIES
+        LABELS "integration;native;standalone" TIMEOUT 300 RUN_SERIAL TRUE)
+    add_test(NAME native_runtime_regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tests/native_programs/runtime_regression.py"
+        --polyc $<TARGET_FILE:polyc> --output-root "${CMAKE_BINARY_DIR}/native-runtime")
+    set_tests_properties(native_runtime_regression PROPERTIES
+        LABELS "integration;native;runtime" TIMEOUT 300 RUN_SERIAL TRUE)
+    add_test(NAME native_standard_entry_regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tests/native_programs/entry_regression.py"
+        --polyc $<TARGET_FILE:polyc> --output-root "${CMAKE_BINARY_DIR}/native-entries")
+    set_tests_properties(native_standard_entry_regression PROPERTIES
+        LABELS "integration;native;entry" TIMEOUT 120 RUN_SERIAL TRUE)
+    add_test(NAME native_differential_regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/scripts/differential_native.py"
+        --polyc $<TARGET_FILE:polyc> --output-root "${CMAKE_BINARY_DIR}/native-differential"
+        --opt-levels 0 2)
+    set_tests_properties(native_differential_regression PROPERTIES
+        LABELS "integration;native;differential" TIMEOUT 900 RUN_SERIAL TRUE)
+endif()

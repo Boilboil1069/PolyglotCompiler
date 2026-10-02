@@ -1,5 +1,6 @@
 // Unit tests for the Ruby frontend.
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <sstream>
 
 #include "frontends/ruby/include/ruby_lexer.h"
@@ -18,6 +19,38 @@ using polyglot::frontends::TokenKind;
 using polyglot::frontends::SemaContext;
 using polyglot::ir::IRContext;
 using namespace polyglot::ruby;
+
+TEST_CASE("Ruby native string literals use quote-specific escape rules", "[ruby][lowering][native-string]") {
+    const std::string source = R"RB(
+# @return [Integer]
+def main()
+  print_text("hello\n")
+  print_text('raw\n')
+  print_text("\u4e2d")
+  print_text("")
+  return 0
+end
+)RB";
+    Diagnostics diags; RbLexer lexer(source, "<test>"); RbParser parser(lexer, diags);
+    parser.ParseModule(); auto module = parser.TakeModule(); REQUIRE(module); REQUIRE_FALSE(diags.HasErrors());
+    IRContext ctx; LowerToIR(*module, ctx, diags); REQUIRE_FALSE(diags.HasErrors());
+    std::vector<std::string> strings;
+    for (const auto &global : ctx.Globals())
+        if (auto literal = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(global->initializer)) strings.push_back(literal->data);
+    CHECK(std::find(strings.begin(), strings.end(), "hello\n") != strings.end());
+    CHECK(std::find(strings.begin(), strings.end(), "raw\\n") != strings.end());
+    CHECK(std::find(strings.begin(), strings.end(), "中") != strings.end());
+    CHECK(std::find(strings.begin(), strings.end(), "") != strings.end());
+}
+
+TEST_CASE("Ruby native text rejects interpolation and NUL literals", "[ruby][lowering][native-string]") {
+    for (const auto &literal : {"\"hello#{1}\"", "\"\\u0000\""}) {
+        const std::string source = "# @return [Integer]\ndef main()\n  print_text(" + std::string(literal) + ")\n  return 0\nend\n";
+        Diagnostics diags; RbLexer lexer(source, "<test>"); RbParser parser(lexer, diags);
+        parser.ParseModule(); auto module = parser.TakeModule(); REQUIRE(module);
+        IRContext ctx; LowerToIR(*module, ctx, diags); CHECK(diags.HasErrors());
+    }
+}
 
 static std::vector<Token> Tokenize(const char *src) {
     RbLexer lex(src, "<test>");

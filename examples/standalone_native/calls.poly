@@ -1,0 +1,11 @@
+FUNC twice(x: INT) -> INT {
+RETURN x * 2;
+}
+
+FUNC combine(x: INT, y: INT) -> INT {
+RETURN twice(x) + twice(y);
+}
+
+FUNC main() -> INT {
+RETURN combine(13, 8);
+}

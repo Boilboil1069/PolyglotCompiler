@@ -1,3 +1,5 @@
+#include "frontends/common/include/native_builtins.h"
+#include "frontends/common/include/native_string_literal.h"
 /**
  * @file     lowering.cpp
  * @brief    Ruby - Polyglot IR lowering
@@ -48,6 +50,10 @@ public:
       module_(mod), ctx_(ctx), builder_(ctx), diag_(diag) {}
 
   void Run() {
+    // Only local, explicitly typed top-level methods use static dispatch.
+    for (const auto &s : module_.body) {
+      if (auto m = std::dynamic_pointer_cast<MethodDecl>(s)) signatures_[m->name] = m.get();
+    }
     for (auto &s : module_.body)
       Top(s, "");
   }
@@ -288,6 +294,8 @@ private:
       auto rhs = InferExprType(bin->right);
       if (lhs.kind == ir::IRTypeKind::kInvalid || !lhs.SameShape(rhs))
         return ir::IRType::Invalid();
+      if (bin->op == "&&" || bin->op == "and" || bin->op == "||" || bin->op == "or")
+        return lhs.kind == ir::IRTypeKind::kI1 ? lhs : ir::IRType::Invalid();
       if (bin->op == "==" || bin->op == "!=" || bin->op == "<" || bin->op == "<=" ||
           bin->op == ">" || bin->op == ">=")
         return lhs.IsScalar() ? ir::IRType::I1() : ir::IRType::Invalid();
@@ -307,6 +315,15 @@ private:
         return (IsFloat(operand) || IsInteger(operand)) ? operand : ir::IRType::Invalid();
       if (unary->op == "~")
         return IsInteger(operand) ? operand : ir::IRType::Invalid();
+      return ir::IRType::Invalid();
+    }
+    if (auto call = std::dynamic_pointer_cast<CallExpr>(e)) {
+      if (!call->receiver && !call->block && !call->safe)
+        if (const auto *api = frontends::FindNativeBuiltin(call->method))
+          return frontends::NativeIRType(api->result);
+      auto it = signatures_.find(call->method);
+      if (!call->receiver && !call->block && !call->safe && it != signatures_.end())
+        return ToIRType(it->second->return_type);
       return ir::IRType::Invalid();
     }
     if (auto assign = std::dynamic_pointer_cast<AssignExpr>(e)) {
@@ -406,10 +423,19 @@ private:
     }
     if (auto bin = std::dynamic_pointer_cast<BinaryExpr>(e)) {
       if (bin->op == "&&" || bin->op == "and" || bin->op == "||" || bin->op == "or") {
-        diag_.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
-                          "Ruby logical operators require short-circuit/value-aware lowering");
-        return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
-                             : builder_.MakeLiteral((long long)0)->name;
+        if (!RequireBoolean(bin->left, "logical operand") || !RequireBoolean(bin->right, "logical operand"))
+          return "";
+        const bool conjunction = bin->op == "&&" || bin->op == "and";
+        auto left = LowerExpr(bin->left, ir::IRType::I1());
+        auto left_end = builder_.GetInsertPoint();
+        auto right = builder_.CreateBlock("logic.rhs"), merge = builder_.CreateBlock("logic.end");
+        builder_.MakeCondBranch(left, conjunction ? right.get() : merge.get(), conjunction ? merge.get() : right.get());
+        builder_.SetInsertPoint(right);
+        auto value = LowerExpr(bin->right, ir::IRType::I1());
+        auto right_end = builder_.GetInsertPoint();
+        builder_.MakeBranch(merge.get());
+        builder_.SetInsertPoint(merge);
+        return builder_.MakePhi(ir::IRType::I1(), {{left_end.get(), left}, {right_end.get(), value}}, "logical")->name;
       }
       auto operand_type = InferExprType(bin->left);
       auto rhs_type = InferExprType(bin->right);
@@ -457,7 +483,7 @@ private:
         op = fp ? Op::kCmpFoe : Op::kCmpEq;
         cmp = true;
       } else if (o == "!=") {
-        op = fp ? Op::kCmpFne : Op::kCmpNe;
+        op = Op::kCmpNe;
         cmp = true;
       } else if (o == "<") {
         op = fp ? Op::kCmpFlt : Op::kCmpSlt;
@@ -495,8 +521,8 @@ private:
                             "Ruby unary minus requires numeric method dispatch");
           return builder_.MakeLiteral((long long)0)->name;
         }
-        auto z = IsFloat(operand_type) ? builder_.MakeLiteral(0.0)->name
-                                      : builder_.MakeLiteral((long long)0)->name;
+        if (IsFloat(operand_type)) return builder_.MakeFloatNegate(v, operand_type, "neg")->name;
+        auto z = builder_.MakeLiteral((long long)0)->name;
         return builder_
             .MakeBinary(IsFloat(operand_type) ? ir::BinaryInstruction::Op::kFSub
                                              : ir::BinaryInstruction::Op::kSub,
@@ -585,21 +611,74 @@ private:
         return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
                              : builder_.MakeLiteral((long long)0)->name;
       }
-      std::vector<std::string> args;
-      for (auto &x : c->args)
-        args.push_back(LowerExpr(x, ir::IRType::I64()));
-      std::string callee = c->method;
-      if (c->receiver) {
-        diag_.ReportError(c->loc, frontends::ErrorCode::kUnsupportedLowering,
-                          "Ruby receiver method calls require dynamic dispatch lowering");
-        return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
-                             : builder_.MakeLiteral((long long)0)->name;
+      if (!c->receiver) if (const auto *api = frontends::FindNativeBuiltin(c->method)) {
+        std::vector<std::string> values;
+        std::vector<ir::IRType> types;
+        for (const auto &arg : c->args) {
+          if (values.size() < api->params.size() && api->params[values.size()] == frontends::NativeType::kString) {
+            if (auto literal = std::dynamic_pointer_cast<Literal>(arg)) {
+              std::string text, error;
+              const auto &source = literal->value;
+              if (literal->kind != Literal::Kind::kString || literal->is_heredoc || source.size() < 2 ||
+                  (source.front() != '\'' && source.front() != '"') || source.back() != source.front()) {
+                error = "Ruby native text APIs require an ordinary quoted string literal";
+              } else if (source.front() == '\'') {
+                for (size_t i = 1; i + 1 < source.size(); ++i) {
+                  if (source[i] == '\\' && i + 2 < source.size() && (source[i+1] == '\\' || source[i+1] == '\'')) ++i;
+                  text.push_back(source[i]);
+                }
+              } else {
+                const auto body = source.substr(1, source.size() - 2);
+                if (body.find("#{") != std::string::npos) error = "Ruby native string interpolation is not supported";
+                for (size_t i = 0; i < body.size() && error.empty(); ++i) {
+                  if (body[i] != '\\') continue;
+                  if (++i == body.size()) { error = "unfinished Ruby string escape"; break; }
+                  const char escape = body[i];
+                  if (std::string("nrtabfv\\\"'u").find(escape) == std::string::npos)
+                    error = "unsupported Ruby native string escape";
+                  if (escape == 'u') i += 4;
+                }
+                if (error.empty()) frontends::DecodeNativeString(body, false, false, text, error);
+              }
+              if (text.find('\0') != std::string::npos) error = "native string APIs do not accept embedded NUL bytes";
+              if (!error.empty()) {
+                diag_.ReportError(literal->loc, frontends::ErrorCode::kUnsupportedLowering, error);
+                return "";
+              }
+              values.push_back(builder_.MakeStringLiteral(text, "native.rbstr"));
+              types.push_back(ir::IRType::Pointer(ir::IRType::I8()));
+              continue;
+            }
+          }
+          auto type = InferExprType(arg);
+          types.push_back(type); values.push_back(LowerExpr(arg, type));
+        }
+        auto inst = frontends::EmitNativeBuiltin(*api, values, types, builder_, ctx_, diag_, c->loc);
+        return inst ? inst->name : "";
       }
-      diag_.ReportError(c->loc, frontends::ErrorCode::kUnsupportedLowering,
-                        "Ruby bare call '" + callee +
-                            "' requires dynamic method lookup and a modeled signature");
-      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
-                           : builder_.MakeLiteral((long long)0)->name;
+      auto it = signatures_.find(c->method);
+      if (c->receiver || it == signatures_.end()) {
+        diag_.ReportError(c->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "Ruby call requires a local typed method with no dynamic receiver");
+        return "";
+      }
+      const auto &method = *it->second;
+      if (c->args.size() != method.params.size()) {
+        diag_.ReportError(c->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "Ruby static call argument count mismatch");
+        return "";
+      }
+      std::vector<std::string> args;
+      for (std::size_t i = 0; i < c->args.size(); ++i) {
+        const auto type = ToIRType(method.params[i].type);
+        if (!InferExprType(c->args[i]).SameShape(type)) {
+          diag_.ReportError(c->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "Ruby static call argument type mismatch");
+          return "";
+        }
+        args.push_back(LowerExpr(c->args[i], type));
+      }
+      return builder_.MakeCall(c->method, args, ToIRType(method.return_type))->name;
     }
     diag_.ReportError(e->loc, frontends::ErrorCode::kUnsupportedLowering,
                       "Ruby expression is parsed but has no faithful IR lowering");
@@ -616,6 +695,7 @@ private:
   ir::IRBuilder builder_;
   [[maybe_unused]] frontends::Diagnostics &diag_;
   std::unordered_map<std::string, Local> locals_;
+  std::unordered_map<std::string, const MethodDecl *> signatures_;
   ir::IRType current_ret_{ir::IRType::Void()};
   ir::IRType last_expr_type_{ir::IRType::Invalid()};
   bool terminated_{false};

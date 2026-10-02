@@ -1310,7 +1310,7 @@ std::shared_ptr<Statement> JavaParser::ParseStatement() {
       ExpectSymbol(";", "expected ';' after yield");
       return node;
     }
-    if (kw == "var" || kw == "final") {
+    if (kw == "var" || kw == "final" || kw == "int" || kw == "long" || kw == "short" || kw == "byte" || kw == "float" || kw == "double" || kw == "bool" || kw == "boolean") {
       return ParseVarDecl();
     }
   }

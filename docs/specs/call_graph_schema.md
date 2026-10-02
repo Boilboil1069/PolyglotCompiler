@@ -45,3 +45,24 @@ without breaking compatibility.
 * The emitter never reorders fields between minor versions.
 * Bumping `polyglot.callgraph` to `v2` is reserved for a breaking layout
   change (e.g. nested per-call-site metadata).
+
+## Argument metadata and callsite identity
+
+Each direct call instruction now emits its own edge with `callsite_id`, `block`,
+`result`, `result_type`, and `arguments`. Repeated calls to one callee remain
+separate. Each argument records its SSA `value`, known `type`, destination
+`parameter`, `expected_type`, and `transfer` (`identity`, `conversion_required`,
+or `unresolved`). A differing type describes a requirement; it does not claim
+that a runtime conversion has been inserted. An unavailable signature or SSA
+type is explicitly `unknown`.
+
+Nodes include `signature_known`, `return_type`, and `parameters` (index, name,
+type). A direct callee that is absent from the IR function table still appears as
+an external node with unknown signature, so every edge endpoint resolves.
+Indirect calls cannot be resolved to a function node and are omitted. This graph
+is an inventory of the supplied IR, not a runtime reachability proof.
+
+The Poly source topology view is separate: `polyglot.topology.v2` contains
+per-call input/output ports, literal and expression nodes, explicit `CONVERT`
+nodes, and function input/result boundaries. Edge `relation` distinguishes
+`value`, `binding`, and `order`; stage order is never labeled as value transfer.

@@ -1,3 +1,4 @@
+#include "frontends/common/include/native_builtins.h"
 /**
  * @file     lowering.cpp
  * @brief    Rust language frontend implementation
@@ -173,6 +174,7 @@ struct LoweringContext {
   ir::IRContext &ir_ctx;
   frontends::Diagnostics &diags;
   std::unordered_map<Name, EnvEntry> env;
+  std::unordered_map<Name, Name> local_addresses;
   std::unordered_map<Name, ir::IRType> function_returns;
   StructLayoutMap struct_layouts;
   std::unordered_map<Name, MethodInfo> methods;
@@ -281,11 +283,8 @@ EvalResult MakeLiteral(long long v, LoweringContext &lc) {
 
 // Create a floating point literal
 EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
-  (void)lc;
-  // Format with enough precision
-  char buf[32];
-  std::snprintf(buf, sizeof(buf), "%.17g", v);
-  return {buf, ir::IRType::F64()};
+  auto literal = lc.builder.MakeLiteral(v);
+  return {literal->name, ir::IRType::F64()};
 }
 
 // Create a boolean literal
@@ -301,6 +300,10 @@ EvalResult EvalPath(const std::shared_ptr<PathExpression> &path, LoweringContext
   if (it == lc.env.end()) {
     lc.diags.Report(path->loc, "undefined path: " + path_name);
     return {};
+  }
+  if (lc.local_addresses.count(path_name)) {
+    auto load = lc.builder.MakeLoad(lc.local_addresses.at(path_name), it->second.type);
+    return {load->name, load->type};
   }
   return {it->second.value, it->second.type};
 }
@@ -332,13 +335,13 @@ std::optional<ir::BinaryInstruction::Op> MapBinOp(const std::string &op, bool is
   if (op == "!=")
     return ir::BinaryInstruction::Op::kCmpNe;
   if (op == "<")
-    return is_signed ? ir::BinaryInstruction::Op::kCmpSlt : ir::BinaryInstruction::Op::kCmpUlt;
+    return is_float ? ir::BinaryInstruction::Op::kCmpFlt : is_signed ? ir::BinaryInstruction::Op::kCmpSlt : ir::BinaryInstruction::Op::kCmpUlt;
   if (op == "<=")
-    return is_signed ? ir::BinaryInstruction::Op::kCmpSle : ir::BinaryInstruction::Op::kCmpUle;
+    return is_float ? ir::BinaryInstruction::Op::kCmpFle : is_signed ? ir::BinaryInstruction::Op::kCmpSle : ir::BinaryInstruction::Op::kCmpUle;
   if (op == ">")
-    return is_signed ? ir::BinaryInstruction::Op::kCmpSgt : ir::BinaryInstruction::Op::kCmpUgt;
+    return is_float ? ir::BinaryInstruction::Op::kCmpFgt : is_signed ? ir::BinaryInstruction::Op::kCmpSgt : ir::BinaryInstruction::Op::kCmpUgt;
   if (op == ">=")
-    return is_signed ? ir::BinaryInstruction::Op::kCmpSge : ir::BinaryInstruction::Op::kCmpUge;
+    return is_float ? ir::BinaryInstruction::Op::kCmpFge : is_signed ? ir::BinaryInstruction::Op::kCmpSge : ir::BinaryInstruction::Op::kCmpUge;
 
   // Bitwise operators
   if (op == "&")
@@ -471,12 +474,11 @@ EvalResult EvalUnary(const std::shared_ptr<UnaryExpression> &un, LoweringContext
     return {};
 
   if (un->op == "-") {
-    // Negation: 0 - operand
-    const bool is_float = operand.type.kind == ir::IRTypeKind::kF32 ||
-                          operand.type.kind == ir::IRTypeKind::kF64;
-    auto inst = lc.builder.MakeBinary(is_float ? ir::BinaryInstruction::Op::kFSub
-                                               : ir::BinaryInstruction::Op::kSub,
-                                      "0", operand.value, "");
+    if (operand.type.IsFloat()) {
+      auto negative = lc.builder.MakeFloatNegate(operand.value, operand.type);
+      return {negative->name, operand.type};
+    }
+    auto inst = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kSub, "0", operand.value, "");
     inst->type = operand.type;
     return {inst->name, inst->type};
   }
@@ -570,15 +572,6 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     return {inst->name, inst->type};
   }
 
-  std::vector<std::string> args;
-  std::vector<ir::IRType> arg_types;
-  for (const auto &arg : call->args) {
-    auto ev = EvalExpr(arg, lc);
-    if (ev.type.kind == ir::IRTypeKind::kInvalid)
-      return {};
-    args.push_back(ev.value);
-    arg_types.push_back(ev.type);
-  }
 
   std::string callee_name;
   if (auto path = std::dynamic_pointer_cast<PathExpression>(call->callee)) {
@@ -591,6 +584,53 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     return {};
   }
 
+  const auto *native_api = frontends::FindNativeBuiltin(callee_name);
+  std::vector<std::string> args;
+  std::vector<ir::IRType> arg_types;
+  for (std::size_t index = 0; index < call->args.size(); ++index) {
+    const auto &argument = call->args[index];
+    if (native_api && index < native_api->params.size() &&
+        native_api->params[index] == frontends::NativeType::kString) {
+      if (auto literal = std::dynamic_pointer_cast<Literal>(argument);
+          literal && !literal->value.empty() && literal->value.front() == '"') {
+        std::string decoded;
+        bool valid = literal->value.size() >= 2 && literal->value.back() == '"';
+        for (std::size_t i = 1; valid && i + 1 < literal->value.size(); ++i) {
+          char character = literal->value[i];
+          if (character == '\\') {
+            if (++i + 1 >= literal->value.size()) { valid = false; break; }
+            switch (literal->value[i]) {
+            case 'n': character = '\n'; break;
+            case 'r': character = '\r'; break;
+            case 't': character = '\t'; break;
+            case '\\': character = '\\'; break;
+            case '"': character = '"'; break;
+            default: valid = false; break;
+            }
+          }
+          if (character == '\0') valid = false;
+          decoded += character;
+        }
+        if (!valid) {
+          lc.diags.ReportError(argument->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "Rust native text expects a NUL-free quoted literal with basic escapes");
+          return {};
+        }
+        args.push_back(lc.builder.MakeStringLiteral(decoded, "native.text"));
+        arg_types.push_back(ir::IRType::Pointer(ir::IRType::I8()));
+        continue;
+      }
+    }
+    auto value = EvalExpr(argument, lc);
+    if (value.type.kind == ir::IRTypeKind::kInvalid) return {};
+    args.push_back(value.value); arg_types.push_back(value.type);
+  }
+
+  if (const auto *api = frontends::FindNativeBuiltin(callee_name)) {
+    auto inst = frontends::EmitNativeBuiltin(*api, args, arg_types, lc.builder, lc.ir_ctx, lc.diags, call->loc);
+    if (!inst) return {};
+    return {inst->name, inst->type};
+  }
   auto known = lc.function_returns.find(callee_name);
   if (known == lc.function_returns.end()) {
     lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
@@ -608,6 +648,10 @@ EvalResult EvalIdentifier(const std::shared_ptr<Identifier> &id, LoweringContext
   if (it == lc.env.end()) {
     lc.diags.Report(id->loc, "undefined identifier: " + id->name);
     return {};
+  }
+  if (lc.local_addresses.count(id->name)) {
+    auto load = lc.builder.MakeLoad(lc.local_addresses.at(id->name), it->second.type);
+    return {load->name, load->type};
   }
   return {it->second.value, it->second.type};
 }
@@ -802,12 +846,14 @@ EvalResult EvalAssignment(const std::shared_ptr<AssignmentExpression> &assign,
 
   // Store the result
   if (auto id = std::dynamic_pointer_cast<Identifier>(assign->left)) {
-    lc.env[id->name] = {rhs.value, rhs.type};
+    if (lc.local_addresses.count(id->name)) lc.builder.MakeStore(lc.local_addresses.at(id->name), rhs.value);
+    else lc.env[id->name] = {rhs.value, rhs.type};
     return rhs;
   }
   if (auto path = std::dynamic_pointer_cast<PathExpression>(assign->left)) {
     std::string name = path->segments.empty() ? "" : path->segments.back();
-    lc.env[name] = {rhs.value, rhs.type};
+    if (lc.local_addresses.count(name)) lc.builder.MakeStore(lc.local_addresses.at(name), rhs.value);
+    else lc.env[name] = {rhs.value, rhs.type};
     return rhs;
   }
   if (auto member = std::dynamic_pointer_cast<MemberExpression>(assign->left)) {
@@ -1249,6 +1295,11 @@ bool LowerLet(const std::shared_ptr<LetStatement> &let, LoweringContext &lc) {
 
   // Handle different pattern types
   if (auto pat = std::dynamic_pointer_cast<IdentifierPattern>(let->pattern)) {
+    if (result.type.IsScalar()) {
+      auto storage = lc.builder.MakeAlloca(result.type);
+      lc.builder.MakeStore(storage->name, result.value);
+      lc.local_addresses[pat->name] = storage->name;
+    }
     lc.env[pat->name] = {result.value, result.type};
     return true;
   }
@@ -1843,6 +1894,7 @@ bool LowerFunction(const FunctionItem &fn, LoweringContext &lc,
 
   // Initialize environment with parameters
   lc.env.clear();
+  lc.local_addresses.clear();
   lc.loop_exit = nullptr;
   lc.loop_continue = nullptr;
   for (const auto &p : params) {

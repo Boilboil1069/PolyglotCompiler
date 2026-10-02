@@ -1462,7 +1462,7 @@ std::shared_ptr<Statement> DotnetParser::ParseStatement() {
       return ParseUsing();
     if (kw == "lock")
       return ParseLock();
-    if (kw == "var" || kw == "const")
+    if (kw == "var" || kw == "const" || kw == "int" || kw == "long" || kw == "short" || kw == "byte" || kw == "float" || kw == "double" || kw == "bool" || kw == "boolean")
       return ParseVarDecl();
     if (kw == "break") {
       auto n = std::make_shared<BreakStatement>();

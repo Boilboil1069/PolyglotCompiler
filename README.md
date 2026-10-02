@@ -107,7 +107,7 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 # Build everything (compiler driver, tools, frontends, runtime, IDE)
 cmake --build build
 
-# Run the full CTest matrix (30 targets)
+# Run the full CTest matrix
 cd build && ctest --output-on-failure
 ```
 
@@ -120,6 +120,14 @@ cmake -B build -G Ninja
 cmake --build build
 cd build && ctest --output-on-failure
 ```
+
+### Standalone native artifacts / 独立原生产物
+
+九种语言的独立源码示例已接入实际编译、链接和运行回归（当前执行验证平台：macOS ARM64）。参见 [使用与完整性能协议](docs/NATIVE_COMPILATION_EVALUATION_zh.md) 和 [九种语言示例](examples/standalone_native/README.md)。评估脚本同时记录编译耗时、编译阶段耗时、产物大小与运行校验；支持范围和原生入口约定见文档。
+
+新增的运行时示例支持完整数字输出、命令行参数、整数数组和文件读写：[排序与统计程序、九语言 API 示例](examples/native_runtime/README.md)。语义差分与寄存器分配评估见 [本轮实现与验证](docs/NATIVE_RUNTIME_UI_EVALUATION_zh.md)。
+
+IDE 提供源码/数据流分屏、外部函数文档与源码内联预览、右键转到定义，以及带参数端口和类型转换标注的函数调用图：[编辑工作区](docs/UI_CROSS_LANGUAGE_WORKSPACE_zh.md) · [数据流图](docs/UI_VALUE_FLOW_zh.md)。
 
 ### Usage / 使用
 

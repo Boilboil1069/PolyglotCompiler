@@ -1123,7 +1123,7 @@ BuildResult BuildMachOImage(const BuildRequest &input) {
     auto &bytes = req.segments[segment_index].sections[section_index].data;
 
     const std::uint64_t width =
-        patch.kind == FinalRelocationKind::kPcRel32 ? 4u : 8u;
+        patch.kind == FinalRelocationKind::kAbs64 ? 8u : 4u;
     if (patch.source_offset > bytes.size() ||
         width > bytes.size() - patch.source_offset) {
       return BuildResult{};
@@ -1146,7 +1146,40 @@ BuildResult BuildMachOImage(const BuildRequest &input) {
     }
     value += patch.addend;
 
-    if (patch.kind == FinalRelocationKind::kPcRel32) {
+    if (patch.kind == FinalRelocationKind::kArm64Branch26 ||
+        patch.kind == FinalRelocationKind::kArm64Page21 ||
+        patch.kind == FinalRelocationKind::kArm64PageOff12) {
+      std::uint32_t instruction = 0;
+      for (unsigned i = 0; i < 4; ++i)
+        instruction |= static_cast<std::uint32_t>(bytes[patch.source_offset + i]) << (8 * i);
+      if (patch.kind == FinalRelocationKind::kArm64Branch26) {
+        const auto displacement = value - static_cast<std::int64_t>(source_address);
+        if ((displacement & 3) || displacement < -(1LL << 27) || displacement >= (1LL << 27))
+          return BuildResult{};
+        instruction = (instruction & 0xfc000000u) |
+            (static_cast<std::uint32_t>(displacement >> 2) & 0x03ffffffu);
+      } else if (patch.kind == FinalRelocationKind::kArm64Page21) {
+        const auto pages = ((value & ~4095LL) -
+            (static_cast<std::int64_t>(source_address) & ~4095LL)) >> 12;
+        if (pages < -(1LL << 20) || pages >= (1LL << 20)) return BuildResult{};
+        const auto immediate = static_cast<std::uint32_t>(pages) & 0x1fffffu;
+        instruction = (instruction & 0x9f00001fu) |
+            ((immediate & 3u) << 29) | ((immediate >> 2) << 5);
+      } else {
+        std::uint32_t immediate = static_cast<std::uint32_t>(value) & 4095u;
+        if ((instruction & 0x3b000000u) == 0x39000000u) {
+          unsigned scale = instruction >> 30;
+          if ((instruction & 0x04800000u) == 0x04800000u) scale = 4;
+          if (immediate & ((1u << scale) - 1)) return BuildResult{};
+          immediate >>= scale;
+        } else if ((instruction & 0x7f000000u) != 0x11000000u) {
+          return BuildResult{};
+        }
+        instruction = (instruction & 0xffc003ffu) | (immediate << 10);
+      }
+      for (unsigned i = 0; i < 4; ++i)
+        bytes[patch.source_offset + i] = static_cast<std::uint8_t>(instruction >> (8 * i));
+    } else if (patch.kind == FinalRelocationKind::kPcRel32) {
       if (value < INT64_MIN + static_cast<std::int64_t>(source_address))
         return BuildResult{};
       value -= static_cast<std::int64_t>(source_address);
@@ -1777,14 +1810,23 @@ const Symbol *ResolveRelocationTarget(
 bool AppendFinalRelocationPatches(ma::BuildRequest &req, const EmitInputs &in,
                                   const PartitionedBytes &parts,
                                   std::string &error_out) {
-  if (req.arch != ma::MachOArch::kX86_64)
-    return true;
-
   for (std::size_t object_index = 0; object_index < in.objects.size(); ++object_index) {
     const auto &object = in.objects[object_index];
     for (const auto &relocation : object.relocations) {
       ma::FinalRelocationKind kind;
-      if (relocation.is_pc_relative && relocation.size == 4) {
+      if (req.arch == ma::MachOArch::kArm64) {
+        const bool macho = object.format == ObjectFormat::kMachO;
+        const auto type = relocation.type;
+        if (type == (macho ? 2u : 283u) || (!macho && type == 282u))
+          kind = ma::FinalRelocationKind::kArm64Branch26;
+        else if (type == (macho ? 3u : 275u))
+          kind = ma::FinalRelocationKind::kArm64Page21;
+        else if (type == (macho ? 4u : 277u))
+          kind = ma::FinalRelocationKind::kArm64PageOff12;
+        else if (type == (macho ? 0u : 257u) && relocation.size == 8)
+          kind = ma::FinalRelocationKind::kAbs64;
+        else continue;
+      } else if (relocation.is_pc_relative && relocation.size == 4) {
         kind = ma::FinalRelocationKind::kPcRel32;
       } else if (!relocation.is_pc_relative && relocation.size == 8) {
         kind = ma::FinalRelocationKind::kAbs64;

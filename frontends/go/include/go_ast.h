@@ -81,6 +81,7 @@ struct Identifier : Expression {
 };
 
 struct BasicLit : Expression {
+  bool is_raw_string{false};
   enum class Kind { kInt, kFloat, kImag, kString, kRune, kBool, kNil } kind{Kind::kInt};
   std::string value;
 };

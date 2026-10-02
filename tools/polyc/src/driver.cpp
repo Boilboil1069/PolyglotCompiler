@@ -134,7 +134,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --container=<c>     Force binary container: auto|elf|pe|macho|wasm\n"
           << "  --subsystem=<s>     PE subsystem (console|windows|...); ignored on\n"
           << "                      non-PE containers\n"
-          << "  --entry=<sym>       Override entry symbol (e.g. _start, mainCRTStartup)\n"
+          << "  --entry=<sym>       Select source entry (e.g. main, Program::Main)\n"
           << "  --quiet             Suppress progress output\n"
           << "  --no-aux            Do not emit auxiliary files\n"
           << "  --force             Continue despite errors\n"
@@ -151,7 +151,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --clean-cache       Purge incremental compilation cache\n"
           << "  --dump-token-pool   Write <stem>.pool_stats.json with frontend pool counters\n"
           << "  -j<N>               Parallelism hint\n"
-          << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
+          << "  --regalloc=<mode>   linear-scan|graph-coloring|stack (ARM64 baseline)\n"
           << "  --print-targets[=json|text]            List registered backends and exit\n"
           << "  --print-target-info=<triple>[:json]    Print one backend's info and exit\n"
           << "  --check <file>      Run frontend analysis only and emit LSP-style JSON diagnostics\n"
@@ -388,9 +388,12 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg.rfind("--regalloc=", 0) == 0) {
       auto m = arg.substr(11);
-      s.regalloc = (m == "graph" || m == "graph-coloring" || m == "coloring")
-                       ? RegAllocChoice::kGraphColoring
-                       : RegAllocChoice::kLinearScan;
+      if (m == "graph" || m == "graph-coloring" || m == "coloring")
+        s.regalloc = RegAllocChoice::kGraphColoring;
+      else if (m == "linear" || m == "linear-scan")
+        s.regalloc = RegAllocChoice::kLinearScan;
+      else if (m == "stack") s.regalloc = RegAllocChoice::kStack;
+      else { std::cerr << "[error] unknown register allocator: " << m << "\n"; std::exit(2); }
       continue;
     }
     if (arg.rfind("--I=", 0) == 0) {
@@ -1132,6 +1135,20 @@ int main(int argc, char **argv) {
       }
     }
     settings.container = effective;
+    if (!settings.target_spec.empty()) {
+      settings.arch = ::polyglot::common::ArchName(settings.target_triple.arch);
+    } else {
+      // Preserve the legacy --arch flag while keeping the linker in sync.
+      if (settings.arch == "arm64" || settings.arch == "aarch64")
+        settings.target_triple.arch = ::polyglot::common::Arch::kAArch64;
+      else if (settings.arch == "x86_64")
+        settings.target_triple.arch = ::polyglot::common::Arch::kX86_64;
+    }
+    if (!settings.target_spec.empty()) {
+      settings.obj_format = effective == BinaryContainer::kMachO ? "macho" :
+                            effective == BinaryContainer::kPE ? "coff" :
+                            effective == BinaryContainer::kWasm ? "wasm" : "elf";
+    }
   }
 
   // ---- Mode validation --------------------------------------------------
@@ -1209,6 +1226,11 @@ int main(int argc, char **argv) {
     cfg.entry_symbol = settings.entry_symbol;
     cfg.source_label = source_label;
     cfg.opt_level = settings.opt_level;
+    cfg.reg_alloc = settings.regalloc == RegAllocChoice::kStack
+        ? polyglot::backends::RegAllocStrategy::kStack
+        : settings.regalloc == RegAllocChoice::kGraphColoring
+            ? polyglot::backends::RegAllocStrategy::kGraphColoring
+            : polyglot::backends::RegAllocStrategy::kLinearScan;
     cfg.verbose = settings.verbose;
     cfg.strict_mode = settings.strict;
     cfg.force = settings.force;
@@ -1277,6 +1299,14 @@ int main(int argc, char **argv) {
       for (const auto &d : pipeline.GetContext().diagnostics->All())
         std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
       return 1;
+    }
+    if (settings.progress_json) {
+      for (const auto &tm : pipeline.GetContext().timings)
+        std::cout << "{\"event\":\"stage_end\",\"stage\":\"" << tm.name
+                  << "\",\"elapsed_ms\":" << std::setprecision(6) << tm.elapsed_ms << "}\n";
+      const double ms = std::chrono::duration<double, std::milli>(
+          std::chrono::high_resolution_clock::now() - total_start).count();
+      std::cout << "{\"event\":\"complete\",\"success\":true,\"total_ms\":" << ms << "}\n";
     }
     if (V) {
       for (const auto &tm : pipeline.GetContext().timings)

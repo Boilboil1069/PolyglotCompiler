@@ -35,7 +35,7 @@ namespace polyglot::backends::common::machine_ir {
 /// independent. Each backend re-exports it via a `using` alias so that
 /// previously-existing code that referenced `polyglot::backends::<target>::
 /// RegAllocStrategy` keeps compiling.
-enum class RegAllocStrategy { kLinearScan, kGraphColoring };
+enum class RegAllocStrategy { kLinearScan, kGraphColoring, kStack };
 
 /// @brief Operand of a machine instruction.
 ///

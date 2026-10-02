@@ -59,66 +59,28 @@ void PadTo(std::vector<std::uint8_t> &out, std::size_t target) {
 }
 
 // ---------------------------------------------------------------------------
-// Architecture-specific `_start` stub assembly.  The stubs are 16 bytes
-// each so that the user `main` symbol always lives at exactly
-// `text_vaddr + kStartStubSize`.  Both stubs:
-//   1. transfer control to `main` (a relative call / branch-link whose
-//      immediate is computed from the fact that `main` is the very
-//      next instruction after the stub);
-//   2. take `main`'s return value out of the architecture's first
-//      return register and feed it as the first argument to the
-//      kernel exit syscall;
-//   3. invoke the syscall and trap if it ever returns.
-// ---------------------------------------------------------------------------
-
-// x86_64 SysV ABI:
-//   * `call rel32`               (5 bytes)   target = main (offset 16
-//                                            from start, so rel32 = 11)
-//   * `mov  rdi, rax`            (3 bytes)   forward main's return value
-//   * `mov  eax, 60`             (5 bytes)   __NR_exit
-//   * `syscall`                  (2 bytes)
-//   * `nop`                      (1 byte)    pad to 16
-//
-// Total: 5 + 3 + 5 + 2 + 1 = 16.
+// Kernel entry provides argc/argv on the initial stack. The 32-byte stubs
+// forward them to the source wrapper, then exit with its integer return value.
 std::vector<std::uint8_t> StubX86_64() {
   return {
-      0xE8, 0x0B, 0x00, 0x00, 0x00,       // call main (rel32 = +11)
-      0x48, 0x89, 0xC7,                   // mov rdi, rax
-      0xB8, 0x3C, 0x00, 0x00, 0x00,       // mov eax, 60
-      0x0F, 0x05,                         // syscall
-      0x90,                               // nop
+      0x48, 0x8b, 0x3c, 0x24,             // mov rdi,[rsp]
+      0x48, 0x8d, 0x74, 0x24, 0x08,       // lea rsi,[rsp+8]
+      0xe8, 0x12, 0x00, 0x00, 0x00,       // call user entry at offset 32
+      0x48, 0x89, 0xc7,                   // mov rdi,rax
+      0xb8, 0x3c, 0x00, 0x00, 0x00,       // mov eax,60
+      0x0f, 0x05,                         // syscall
+      0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
   };
 }
-
-// AArch64 AAPCS:
-//   * `bl  main`           (4 bytes)  imm26 = 4 (offset = 16 bytes)
-//                                     (return value already in x0)
-//   * `mov w8, #93`        (4 bytes)  __NR_exit on aarch64
-//   * `svc #0`             (4 bytes)
-//   * `nop`                (4 bytes)  pad to 16
-//
-// Encoding details (all little-endian on disk):
-//   * BL:    0x94000000 | (imm26 & 0x03FFFFFF) ; here imm26 = 4
-//            -> 0x94000004
-//   * MOVZ w8, #93 (LSL 0):
-//            opcode = 0x52800000
-//            imm16 = 93, shift in bits[20:5]
-//            rd = 8 (low five bits)
-//            -> 0x52800000 | (93 << 5) | 8 = 0x52800BA8
-//   * SVC #0:
-//            0xD4000001
-//   * NOP:   0xD503201F
 std::vector<std::uint8_t> StubArm64() {
-  auto append32 = [](std::vector<std::uint8_t> &b, std::uint32_t insn) {
-    for (int i = 0; i < 4; ++i)
-      b.push_back(static_cast<std::uint8_t>((insn >> (8 * i)) & 0xFFu));
-  };
   std::vector<std::uint8_t> out;
-  out.reserve(16);
-  append32(out, 0x94000004u);  // bl main
-  append32(out, 0x52800BA8u);  // movz w8, #93
-  append32(out, 0xD4000001u);  // svc #0
-  append32(out, 0xD503201Fu);  // nop
+  for (const auto word : {0xf94003e0u,  // ldr x0,[sp]
+                         0x910023e1u,  // add x1,sp,#8
+                         0x94000006u,  // bl user entry at offset 32
+                         0x52800ba8u,  // mov w8,#93
+                         0xd4000001u,  // svc #0
+                         0xd503201fu, 0xd503201fu, 0xd503201fu})
+    for (unsigned i = 0; i < 4; ++i) out.push_back((word >> (i * 8)) & 255);
   return out;
 }
 

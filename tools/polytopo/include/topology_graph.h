@@ -57,6 +57,10 @@ struct TopologyNode {
     kPipeline,     // PIPELINE block
     kMapFunc,      // MAP_FUNC type conversion helper
     kExternalCall, // Cross-language CALL(lang, func, ...)
+    kBoundary,     // Function inputs / returned value in a body
+    kValue,        // Literal or unresolved value
+    kOperation,    // Arithmetic / logical expression
+    kConversion,   // Explicit CONVERT expression
   };
 
   uint64_t id{0};
@@ -71,6 +75,8 @@ struct TopologyNode {
 
   // Optional metadata
   std::string description;          // Human-readable description
+  std::string display_name;         // Call target without instance suffix
+  core::SourceLoc definition_loc{}; // Definition, distinct from call-site loc
   bool is_linked{false};            // True if the node is a LINK target
   std::string link_source_language; // Source language of linked function
   std::string link_source_function; // Source function of linked function
@@ -126,6 +132,8 @@ struct TopologyEdge {
 
   // If conversion is needed, the required marshal operation
   std::string conversion_note;
+  std::string relation{"value"}; // value, binding, or order; order is not data flow
+  std::string value_label;       // Source expression / variable, when known
 
   // Context: the enclosing FUNC / pipeline-stage node whose body analysis
   // created this edge.  Zero for LINK edges and pipeline-stage-order edges.

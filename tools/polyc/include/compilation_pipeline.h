@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "middle/include/ir/ir_context.h"
+#include "backends/common/include/target_backend.h"
 
 #include "common/include/core/types.h"
 #include "common/include/binary_container.h"
@@ -373,6 +374,7 @@ struct CompilationContext {
     std::string polyld_path{"polyld"};
     std::string source_label;
     int opt_level{0};
+    backends::RegAllocStrategy reg_alloc{backends::RegAllocStrategy::kLinearScan};
     bool verbose{false};
     bool strict_mode{false};
     bool force{false};

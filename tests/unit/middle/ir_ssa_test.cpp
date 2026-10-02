@@ -90,3 +90,73 @@ TEST_CASE("Dominance handles unreachable blocks", "[ir][cfg][dom]") {
   REQUIRE(df.find(entry) == df.end());
   REQUIRE(dom.idom.find(dead) == dom.idom.end());
 }
+
+#include "middle/include/ir/ir_builder.h"
+#include "middle/include/ir/verifier.h"
+
+TEST_CASE("IRBuilder phi uses the verified edge collection and preserves literals", "[ir][ssa][regression]") {
+  IRContext context; IRBuilder builder(context);
+  auto fn = builder.CreateFunction("choose", IRType::I1(), {{"condition", IRType::I1()}});
+  builder.SetCurrentFunction(fn);
+  auto entry = builder.CreateBlock("entry"), right = builder.CreateBlock("right"), merge = builder.CreateBlock("merge");
+  builder.SetInsertPoint(entry); builder.MakeCondBranch("condition", right.get(), merge.get());
+  builder.SetInsertPoint(right); builder.MakeBranch(merge.get());
+  builder.SetInsertPoint(merge);
+  auto phi = builder.MakePhi(IRType::I1(), {{entry.get(), "0"}, {right.get(), "1"}}, "result");
+  builder.MakeReturn(phi->name);
+  REQUIRE(merge->phis.size() == 1); CHECK(merge->instructions.empty());
+  ConvertToSSA(*fn);
+  REQUIRE(merge->phis.size() == 1);
+  CHECK(merge->phis[0]->incomings[0].second == "0");
+  CHECK(merge->phis[0]->incomings[1].second == "1");
+  std::string error; CHECK(Verify(context, &error)); INFO(error);
+}
+
+TEST_CASE("Module verification retains writable global pointer types", "[ir][verifier][globals]") {
+  IRContext context; IRBuilder builder(context);
+  context.CreateGlobal("counter", IRType::I64(), false, "0", std::make_shared<LiteralExpression>(0LL));
+  auto fn = builder.CreateFunction("update", IRType::I64(), {{"value", IRType::I64()}});
+  builder.SetCurrentFunction(fn); builder.SetInsertPoint(builder.CreateBlock("entry"));
+  builder.MakeStore("counter", "value");
+  auto loaded = builder.MakeLoad("counter", IRType::I64()); builder.MakeReturn(loaded->name);
+  std::string error;
+  CHECK(Verify(context, &error)); INFO(error);
+  CHECK_FALSE(Verify(*fn, &error)); // no global symbol table in standalone verification
+}
+
+TEST_CASE("Verifier rejects a literal-looking name without a definition", "[ir][verifier][constants]") {
+  IRContext context; IRBuilder builder(context);
+  auto fn = builder.CreateFunction("missing", IRType::I64(), {});
+  builder.SetCurrentFunction(fn); builder.SetInsertPoint(builder.CreateBlock("entry"));
+  builder.MakeReturn("c123");
+  std::string error; CHECK_FALSE(Verify(context, &error));
+  CHECK(error.find("undefined value") != std::string::npos);
+}
+
+TEST_CASE("Floating negation bitcasts preserve negative zero", "[ir][verifier][float]") {
+  CHECK(IRType::F64().CanBitcastTo(IRType::I64(false)));
+  CHECK(IRType::I32(false).CanBitcastTo(IRType::F32()));
+  CHECK_FALSE(IRType::F64().CanBitcastTo(IRType::I32()));
+  IRContext context; IRBuilder builder(context);
+  auto fn = builder.CreateFunction("negative", IRType::F64(), {{"value", IRType::F64()}});
+  builder.SetCurrentFunction(fn); builder.SetInsertPoint(builder.CreateBlock("entry"));
+  auto result = builder.MakeFloatNegate("value", IRType::F64()); builder.MakeReturn(result->name);
+  std::string error; INFO(error); CHECK(Verify(context, &error));
+}
+
+TEST_CASE("Generated IR names cannot shadow parameters or earlier function values", "[ir][builder][names]") {
+  IRContext context; IRBuilder builder(context);
+  auto fn = builder.CreateFunction("collision", IRType::I64(), {{"truth", IRType::I64()}, {"c0", IRType::I64()}});
+  builder.SetCurrentFunction(fn); auto entry = builder.CreateBlock("entry"); builder.SetInsertPoint(entry);
+  auto literal = builder.MakeLiteral(1LL);
+  CHECK(literal->name != "c0");
+  auto result = builder.MakeBinary(BinaryInstruction::Op::kAdd, "truth", literal->name, "truth");
+  CHECK(result->name != "truth");
+  auto other = builder.CreateFunction("other", IRType::Void(), {});
+  builder.SetCurrentFunction(other); builder.SetInsertPoint(builder.CreateBlock("entry")); builder.MakeReturn();
+  builder.SetCurrentFunction(fn); builder.SetInsertPoint(entry);
+  auto extra = builder.MakeLiteral(2LL, result->name);
+  CHECK(extra->name != result->name);
+  builder.MakeReturn(result->name);
+  std::string error; INFO(error); CHECK(Verify(context, &error));
+}

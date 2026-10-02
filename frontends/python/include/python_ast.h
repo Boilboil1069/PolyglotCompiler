@@ -49,6 +49,8 @@ struct Identifier : Expression {
 struct Literal : Expression {
   std::string value;
   bool is_string{false};
+  bool is_raw_string{false};
+  bool is_bytes_string{false};
 };
 
 /** @brief TupleExpression data structure. */

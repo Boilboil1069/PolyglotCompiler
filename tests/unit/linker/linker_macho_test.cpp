@@ -520,3 +520,43 @@ TEST_CASE("polyld Mach-O symbols match emitted text and data VM addresses",
   fs::remove(object_path, ignored);
   fs::remove(image_path, ignored);
 }
+
+TEST_CASE("ARM64 final Mach-O layout patches data pages and relative branches",
+          "[linker_macho][relocation][arm64]") {
+  auto req = MakeMinimalRequest(kFileTypeExecute, MachOArch::kArm64);
+  // ADRP x9; ADD x9,x9; RET; BL (backwards to RET).
+  req.segments.front().sections.front().data = {
+      0x09,0x00,0x00,0x90, 0x29,0x01,0x00,0x91,
+      0xc0,0x03,0x5f,0xd6, 0x00,0x00,0x00,0x94};
+  SegmentDesc data;
+  data.segname = "__DATA";
+  data.initprot = data.maxprot = kVmProtRead | kVmProtWrite;
+  SectionDesc payload;
+  payload.sectname = "__data"; payload.segname = "__DATA";
+  payload.alignment_log2 = 3; payload.data.resize(512, 0);
+  data.sections.push_back(payload); req.segments.push_back(data);
+  FinalRelocationPatch patch;
+  patch.source_section = 0; patch.target_section = 1; patch.target_offset = 264;
+  patch.kind = FinalRelocationKind::kArm64Page21;
+  req.final_relocations.push_back(patch);
+  patch.source_offset = 4; patch.kind = FinalRelocationKind::kArm64PageOff12;
+  req.final_relocations.push_back(patch);
+  patch.source_offset = 12; patch.target_section = 0; patch.target_offset = 8;
+  patch.kind = FinalRelocationKind::kArm64Branch26;
+  req.final_relocations.push_back(patch);
+  const auto result = BuildMachOImage(req);
+  REQUIRE_FALSE(result.image.empty());
+  const auto parsed = ParseMachO(result.image);
+  const auto &text = FindSection(parsed, "__TEXT", "__text");
+  const auto &writable = FindSection(parsed, "__DATA", "__data");
+  const auto adrp = ReadU32(result.image, text.file_offset);
+  std::int64_t pages = ((adrp >> 29) & 3u) | (((adrp >> 5) & 0x7ffffu) << 2);
+  if (pages & (1 << 20)) pages -= (1 << 21);
+  const auto add = ReadU32(result.image, text.file_offset + 4);
+  const auto resolved = static_cast<std::uint64_t>(
+      static_cast<std::int64_t>(text.address & ~4095ULL) + pages * 4096 + ((add >> 10) & 4095));
+  CHECK(resolved == writable.address + 264);
+  CHECK(ReadU32(result.image, text.file_offset + 12) == 0x97ffffffu);
+  req.final_relocations.back().target_offset = 7;
+  CHECK(BuildMachOImage(req).image.empty());
+}

@@ -27,6 +27,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFile>
+#include <QGraphicsScene>
 #include <QPointF>
 #include <QSettings>
 
@@ -267,4 +268,151 @@ TEST_CASE("TopologyPanel: static layouts produce distinct node positions",
     QSettings settings("PolyglotCompiler", "IDE");
     settings.setValue("topology/layout_mode",
                       LayoutModeToString(LayoutMode::kHierarchical));
+}
+
+TEST_CASE("TopologyPanel renders visible directed values without overlapping cards",
+          "[topology][ui][dataflow][snapshot]") {
+  auto &app = GetOrCreateApp();
+  const auto source = R"(
+    FUNC next(x: INT) -> INT { RETURN x + 1; }
+    FUNC main(a: INT) -> INT {
+      LET left = next(a);
+      LET right = next(left);
+      RETURN right;
+    }
+  )";
+  QSettings settings("PolyglotCompiler", "IDE");
+  settings.setValue("topology/layout_mode", "hierarchical");
+  TopologyPanel panel;
+  panel.resize(1500, 850);
+  auto path = WriteTempPloy(source, "topology_values_snapshot.poly");
+  panel.LoadFromFile(path);
+  panel.show(); app.processEvents();
+  QMetaObject::invokeMethod(&panel, "OnZoomFit");
+  std::vector<TopoNodeItem *> visible;
+  for (const auto &[id, node] : panel.NodeItems())
+    if (node->isVisible()) visible.push_back(node);
+  REQUIRE(visible.size() >= 7);
+  for (size_t i = 0; i < visible.size(); ++i)
+    for (size_t j = i + 1; j < visible.size(); ++j)
+      CHECK_FALSE(visible[i]->sceneBoundingRect().intersects(visible[j]->sceneBoundingRect()));
+  size_t wires = 0;
+  for (auto *edge : panel.EdgeItems()) {
+    if (!edge->isVisible()) continue;
+    CHECK_FALSE(edge->FlowLabel().isEmpty());
+    CHECK(edge->flags().testFlag(QGraphicsItem::ItemIsSelectable));
+    const auto *src = panel.NodeItems().at(edge->SourceNodeId());
+    const auto *dst = panel.NodeItems().at(edge->TargetNodeId());
+    CHECK(src->OutputPort(edge->SourcePortId()) != nullptr);
+    CHECK(dst->InputPort(edge->TargetPortId()) != nullptr);
+    CHECK(src->pos().x() < dst->pos().x());
+    ++wires;
+  }
+  CHECK(wires >= 6);
+  const auto output = qEnvironmentVariable("POLY_TOPOLOGY_SNAPSHOT_DIR");
+  if (!output.isEmpty()) {
+    QDir().mkpath(output);
+    CHECK(panel.grab().save(output + "/topology-values.png"));
+  }
+  QFile::remove(path);
+}
+
+#include <filesystem>
+#include "frontends/common/include/frontend_registry.h"
+#include "frontends/cpp/include/cpp_frontend.h"
+#include "frontends/python/include/python_frontend.h"
+
+TEST_CASE("TopologyPanel displays actual foreign signatures and conversion labels",
+          "[topology][ui][dataflow][snapshot][foreign]") {
+  auto &app = GetOrCreateApp();
+  auto &registry = polyglot::frontends::FrontendRegistry::Instance();
+  registry.Register(std::make_shared<polyglot::cpp::CppLanguageFrontend>());
+  registry.Register(std::make_shared<polyglot::python::PythonLanguageFrontend>());
+  const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+  const auto fixture = root / "tests/fixtures/topology/value_conversion/flow.poly";
+  REQUIRE(std::filesystem::exists(fixture));
+  QSettings settings("PolyglotCompiler", "IDE");
+  settings.setValue("topology/layout_mode", "hierarchical");
+  TopologyPanel panel;
+  panel.resize(1500, 850);
+  panel.LoadFromFile(QString::fromStdString(fixture.string()));
+  panel.show(); app.processEvents();
+  QMetaObject::invokeMethod(&panel, "OnZoomFit");
+  bool found = false;
+  for (auto *edge : panel.EdgeItems()) {
+    if (!edge->FlowLabel().contains("i32 → f64")) continue;
+    CHECK(edge->isVisible());
+    CHECK(edge->Status() == "implicit_convert");
+    edge->setSelected(true); app.processEvents();
+    found = true;
+  }
+  CHECK(found);
+  QMetaObject::invokeMethod(&panel, "OnZoomFit");
+  app.processEvents();
+  const auto output = qEnvironmentVariable("POLY_TOPOLOGY_SNAPSHOT_DIR");
+  if (!output.isEmpty()) {
+    QDir().mkpath(output);
+    CHECK(panel.grab().save(output + "/topology-foreign-conversion.png"));
+  }
+}
+
+TEST_CASE("TopologyPanel can delete a node and its selected edge then relayout",
+          "[topology][ui][dataflow][delete]") {
+  auto &app = GetOrCreateApp();
+  TopologyPanel panel;
+  const auto path = WriteTempPloy(kSampleSource, "topo_delete_selection.poly");
+  panel.LoadFromFile(path);
+  REQUIRE_FALSE(panel.EdgeItems().empty());
+  auto *edge = panel.EdgeItems().front();
+  const auto node_id = edge->SourceNodeId();
+  auto *node = panel.NodeItems().at(node_id);
+  node->setVisible(true);
+  edge->setVisible(true);
+  node->setSelected(true);
+  edge->setSelected(true);
+  REQUIRE(node->isSelected());
+  REQUIRE(edge->isSelected());
+  REQUIRE(QMetaObject::invokeMethod(&panel, "OnBatchDelete"));
+  CHECK(panel.NodeItems().count(node_id) == 0);
+  for (const auto *remaining : panel.EdgeItems()) {
+    CHECK(remaining->SourceNodeId() != node_id);
+    CHECK(remaining->TargetNodeId() != node_id);
+  }
+  REQUIRE(QMetaObject::invokeMethod(&panel, "OnLayoutChanged", Q_ARG(int, 0)));
+  panel.RefreshEdgePositions();
+  app.processEvents();
+  QFile::remove(path);
+}
+
+TEST_CASE("TopologyPanel routes long dependencies around unrelated function cards",
+          "[topology][ui][dataflow][routing][snapshot]") {
+  auto &app = GetOrCreateApp();
+  QSettings settings("PolyglotCompiler", "IDE");
+  settings.setValue("topology/layout_mode", "hierarchical");
+  const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path();
+  const auto fixture = root / "examples/editor_cross_language_demo/order_flow.poly";
+  REQUIRE(std::filesystem::exists(fixture));
+  TopologyPanel panel;
+  panel.resize(1700, 850);
+  panel.LoadFromFile(QString::fromStdString(fixture.string()));
+  panel.show(); app.processEvents();
+  REQUIRE(QMetaObject::invokeMethod(&panel, "OnZoomFit"));
+  std::size_t checked = 0;
+  for (const auto *edge : panel.EdgeItems()) {
+    if (!edge->isVisible()) continue;
+    for (const auto &[id, node] : panel.NodeItems()) {
+      if (!node->isVisible() || id == edge->SourceNodeId() || id == edge->TargetNodeId()) continue;
+      INFO("edge " << edge->EdgeId() << " crosses " << node->NodeName().toStdString());
+      // QPainterPath::intersects treats an open path as a filled polygon.
+      // Test the stroked wire, so its imaginary closing chord is not counted.
+      CHECK_FALSE(edge->shape().intersects(node->sceneBoundingRect().adjusted(2, 2, -2, -2)));
+      ++checked;
+    }
+  }
+  CHECK(checked > 0);
+  const auto output = qEnvironmentVariable("POLY_TOPOLOGY_SNAPSHOT_DIR");
+  if (!output.isEmpty()) {
+    QDir().mkpath(output);
+    CHECK(panel.grab().save(output + "/topology-order-flow.png"));
+  }
 }

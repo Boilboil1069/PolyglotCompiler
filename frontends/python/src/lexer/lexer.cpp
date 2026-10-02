@@ -292,7 +292,6 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
     break;
   }
 
-  (void)bytes;
   char quote = Get();
   bool triple = false;
   if (Peek() == quote && PeekNext() == quote) {
@@ -305,7 +304,7 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
   core::SourceLoc segment_loc = CurrentLoc();
   bool first_segment = true;
   auto flush_segment = [&]() {
-    if (!segment.empty() || (formatted && first_segment)) {
+    if (!segment.empty() || first_segment) {
       frontends::Token token{frontends::TokenKind::kString, segment, segment_loc};
       // The token stream otherwise cannot distinguish f"{value}" from a
       // dictionary that happens to follow a normal string.  Mark only the
@@ -313,6 +312,9 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
       if (formatted && first_segment) {
         token.raw_lexeme = templated ? "__polyglot_python_tstring__"
                                      : "__polyglot_python_fstring__";
+      } else if (!formatted) {
+        token.raw_lexeme = bytes ? (raw ? "__polyglot_python_raw_bytes__" : "__polyglot_python_bytes__")
+                                : (raw ? "__polyglot_python_raw_string__" : "");
       }
       pending_.push_back(std::move(token));
       segment.clear();
@@ -325,8 +327,8 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
     core::SourceLoc ch_loc = CurrentLoc();
     char c = Get();
 
-    if (!raw && c == '\\') {
-      if (Peek() == '\n') {
+    if (c == '\\' && (!raw || Peek() == quote || Peek() == '\\')) {
+      if (!raw && Peek() == '\n') {
         // escaped newline inside string
         Get();
         at_line_start_ = true;

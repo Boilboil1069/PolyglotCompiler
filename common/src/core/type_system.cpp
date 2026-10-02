@@ -383,6 +383,28 @@ TypeSystem::TypeSystem() {
 
   /** @name - */
   /** @{ */
+  // Java / C# primitive names must reach sema as scalars, not named structs.
+  for (const auto *language : {"java", "dotnet", "csharp"}) {
+    auto &map = primitive_maps_[language];
+    map["byte"] = Type::Int(8, std::string(language) == "java");
+    map["short"] = Type::Int(16, true);
+    map["int"] = Type::Int(32, true);
+    map["long"] = Type::Int(64, true);
+    map["float"] = Type::Float(32);
+    map["double"] = Type::Float(64);
+    map["char"] = Type::Int(16, false);
+    map["boolean"] = Type::Bool();
+    map["bool"] = Type::Bool();
+    map["string"] = Type::String();
+    map["void"] = Type::Void();
+    if (std::string(language) != "java") {
+      map["sbyte"] = Type::Int(8, true);
+      map["ushort"] = Type::Int(16, false);
+      map["uint"] = Type::Int(32, false);
+      map["ulong"] = Type::Int(64, false);
+    }
+  }
+
   // Default type aliases common across languages
   /** @} */
 

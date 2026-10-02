@@ -208,6 +208,11 @@ struct IRType {
   bool CanBitcastTo(const IRType &dst) const {
     if (SameShape(dst))
       return true;
+    if (((kind == IRTypeKind::kI32 && dst.kind == IRTypeKind::kF32) ||
+         (kind == IRTypeKind::kF32 && dst.kind == IRTypeKind::kI32)) ||
+        ((kind == IRTypeKind::kI64 && dst.kind == IRTypeKind::kF64) ||
+         (kind == IRTypeKind::kF64 && dst.kind == IRTypeKind::kI64)))
+      return true; // same-width scalar bit representation, not numeric conversion
     if ((kind == IRTypeKind::kPointer || kind == IRTypeKind::kReference) &&
         (dst.kind == IRTypeKind::kPointer || dst.kind == IRTypeKind::kReference)) {
       return true; // allow any ptr<->ptr/reference bitcast

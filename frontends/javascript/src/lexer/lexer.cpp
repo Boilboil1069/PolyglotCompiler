@@ -273,7 +273,7 @@ frontends::Token JsLexer::LexOperator() {
   core::SourceLoc loc = CurrentLoc();
   static const char *multi_ops[] = {
       ">>>=", "**=", "<<=",  ">>=", "&&=", "||=", "\?\?=", "...", ">>>", "**",   "<<", ">>",
-      "&&",   "||",  "\?\?", "==",  "!=",  "===", "!==",   "<=",  ">=",  "+=",   "-=", "*=",
+      "&&",   "||",  "\?\?", "===", "!==", "==",  "!=",   "<=",  ">=",  "+=",   "-=", "*=",
       "/=",   "%=",  "&=",   "|=",  "^=",  "++",  "--",    "=>",  "?.",  nullptr};
   // ES has === / !== which are 3 chars; check 4-char first then 3 then 2.
   for (int i = 0; multi_ops[i]; ++i) {

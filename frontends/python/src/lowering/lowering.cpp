@@ -1,3 +1,5 @@
+#include "frontends/common/include/native_builtins.h"
+#include "frontends/common/include/native_string_literal.h"
 /**
  * @file     lowering.cpp
  * @brief    Python language frontend implementation
@@ -360,7 +362,7 @@ std::optional<ir::BinaryInstruction::Op> MapBinOp(const std::string &op,
   if (op == "==")
     return is_float ? ir::BinaryInstruction::Op::kCmpFoe : ir::BinaryInstruction::Op::kCmpEq;
   if (op == "!=")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFne : ir::BinaryInstruction::Op::kCmpNe;
+    return ir::BinaryInstruction::Op::kCmpNe;
   if (op == "<")
     return is_float ? ir::BinaryInstruction::Op::kCmpFlt : ir::BinaryInstruction::Op::kCmpSlt;
   if (op == "<=")
@@ -550,9 +552,12 @@ EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringConte
                            "Python unary minus requires numeric __neg__ runtime semantics");
       return EvalResult::Invalid();
     }
+    if (operand.type.IsFloat()) {
+      auto negative = lc.builder.MakeFloatNegate(operand.value, operand.type, lc.NextTemp("neg"));
+      return {negative->name, operand.type};
+    }
     auto zero = MakeLiteral(0, lc);
-    bool is_float = operand.type.kind == ir::IRTypeKind::kF64;
-    auto op = is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
+    auto op = ir::BinaryInstruction::Op::kSub;
     auto inst = lc.builder.MakeBinary(op, zero.value, operand.value, lc.NextTemp("neg"));
     inst->type = operand.type;
     return {inst->name, operand.type};
@@ -655,13 +660,38 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     }
   }
 
-  auto evaluate_arguments = [&]()
+  auto evaluate_arguments = [&](const frontends::NativeBuiltin *native_api = nullptr)
       -> std::optional<std::pair<std::vector<std::string>, std::vector<ir::IRType>>> {
     std::vector<std::string> values;
     std::vector<ir::IRType> types;
     values.reserve(call->args.size());
     types.reserve(call->args.size());
     for (const auto &arg : call->args) {
+      if (native_api && values.size() < native_api->params.size() &&
+          native_api->params[values.size()] == frontends::NativeType::kString) {
+        if (auto literal = std::dynamic_pointer_cast<Literal>(arg.value); literal && literal->is_string) {
+          std::string text, error;
+          if (literal->is_bytes_string) error = "Python native text APIs require str, not bytes";
+          // The C-string bridge supports ordinary escapes and Unicode scalar
+          // escapes. Reject other forms rather than applying C byte semantics.
+          if (!literal->is_raw_string) for (size_t i = 0; i < literal->value.size() && error.empty(); ++i) {
+            if (literal->value[i] != '\\') continue;
+            if (++i == literal->value.size()) { error = "unfinished Python string escape"; break; }
+            const char escape = literal->value[i];
+            if (std::string("nrtabfv\\\"'uU").find(escape) == std::string::npos)
+              error = "unsupported Python native string escape";
+            if (escape == 'u' || escape == 'U') i += escape == 'u' ? 4 : 8;
+          }
+          if (error.empty()) frontends::DecodeNativeString(literal->value, literal->is_raw_string, false, text, error);
+          if (!error.empty()) {
+            lc.diags.ReportError(literal->loc, frontends::ErrorCode::kUnsupportedLowering, error);
+            return std::nullopt;
+          }
+          values.push_back(lc.builder.MakeStringLiteral(text, lc.NextTemp("native.str")));
+          types.push_back(ir::IRType::Pointer(ir::IRType::I8()));
+          continue;
+        }
+      }
       auto evaluated = EvalExpr(arg.value, lc);
       if (!evaluated.IsValid())
         return std::nullopt;
@@ -744,7 +774,7 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     return EvalResult::Invalid();
   }
 
-  auto evaluated = evaluate_arguments();
+  auto evaluated = evaluate_arguments(frontends::FindNativeBuiltin(callee_name));
   if (!evaluated)
     return EvalResult::Invalid();
   auto &[args, arg_types] = *evaluated;
@@ -782,6 +812,11 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     return {storage->name, ir::IRType::Pointer(class_it->second.struct_type)};
   }
 
+  if (const auto *api = frontends::FindNativeBuiltin(callee_name)) {
+    auto inst = frontends::EmitNativeBuiltin(*api, args, arg_types, lc.builder, lc.ir_ctx, lc.diags, call->loc);
+    if (!inst) return EvalResult::Invalid();
+    return {inst->name, inst->type};
+  }
   // Handle built-in functions
   if (callee_name == "print") {
     // Generate call to runtime print function
@@ -1549,7 +1584,9 @@ bool LowerAssign(const std::shared_ptr<Assignment> &assign, LoweringContext &lc)
       }
       auto inst = lc.builder.MakeBinary(*op, current.value, result.value, lc.NextTemp("aug"));
       inst->type = current.type;
-      lc.env[name->name] = {inst->name, inst->type, "", false};
+      auto &entry = lc.env.at(name->name);
+      if (entry.is_mutable) lc.builder.MakeStore(entry.alloca_name, inst->name);
+      else entry = {inst->name, inst->type, "", false};
       return true;
     }
     if (auto attr = std::dynamic_pointer_cast<AttributeExpression>(target)) {
@@ -1602,7 +1639,15 @@ bool LowerAssign(const std::shared_ptr<Assignment> &assign, LoweringContext &lc)
   // Simple assignment
   for (const auto &target : assign->targets) {
     if (auto name = std::dynamic_pointer_cast<Identifier>(target)) {
-      lc.env[name->name] = {result.value, result.type, "", false};
+      auto existing = lc.env.find(name->name);
+      if (existing != lc.env.end() && existing->second.is_mutable &&
+          existing->second.type.SameShape(result.type)) {
+        lc.builder.MakeStore(existing->second.alloca_name, result.value);
+      } else {
+        auto storage = lc.builder.MakeAlloca(result.type, lc.NextTemp("local.addr"));
+        lc.builder.MakeStore(storage->name, result.value);
+        lc.env[name->name] = {result.value, result.type, storage->name, true};
+      }
     } else if (auto tup = std::dynamic_pointer_cast<TupleExpression>(target)) {
       // Tuple unpacking
       for (size_t i = 0; i < tup->elements.size(); ++i) {

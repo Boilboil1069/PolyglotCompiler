@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -28,6 +29,12 @@ struct Instruction : Value {
 
   virtual bool IsTerminator() const { return false; }
   bool HasResult() const { return !name.empty() && type.kind != IRTypeKind::kVoid; }
+};
+
+// A literal must survive into the instruction stream. A generated name alone
+// loses its value before instruction selection (notably for JS/Ruby literals).
+struct ConstantInstruction : Instruction {
+  std::uint64_t bits{0};
 };
 
 /** @brief BinaryInstruction data structure. */

@@ -29,6 +29,8 @@ using Clock = std::chrono::steady_clock;
 ::polyglot::backends::arm64::RegAllocStrategy MapRegAlloc(
     ::polyglot::backends::RegAllocStrategy strategy) {
   switch (strategy) {
+  case ::polyglot::backends::RegAllocStrategy::kStack:
+    return ::polyglot::backends::arm64::RegAllocStrategy::kStack;
   case ::polyglot::backends::RegAllocStrategy::kGraphColoring:
     return ::polyglot::backends::arm64::RegAllocStrategy::kGraphColoring;
   case ::polyglot::backends::RegAllocStrategy::kLinearScan:
@@ -74,6 +76,7 @@ public:
     const auto t_start = Clock::now();
 
     Arm64Target target(&module);
+    if (!options.target_os.empty()) target.SetTargetOS(options.target_os);
     target.SetRegAllocStrategy(MapRegAlloc(options.reg_alloc));
 
     if (options.emit == ::polyglot::backends::EmitKind::kBitcode ||
@@ -88,7 +91,16 @@ public:
     }
 
     const auto t_asm0 = Clock::now();
-    result.artifacts.assembly_text = target.EmitAssembly();
+    try { result.artifacts.assembly_text = target.EmitAssembly(); }
+    catch (const std::exception &error) {
+      BackendDiagnostic diag;
+      diag.severity = BackendDiagnostic::Severity::kError;
+      diag.component = "EmitAssembly";
+      diag.message = error.what();
+      result.diagnostics.push_back(std::move(diag));
+      result.ok = false;
+      return result;
+    }
     const auto t_asm1 = Clock::now();
     result.artifacts.stats.emit_micros +=
         static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -110,7 +122,17 @@ public:
     }
 
     const auto t_obj0 = Clock::now();
-    auto mc = target.EmitObjectCode();
+    Arm64Target::MCResult mc;
+    try { mc = target.EmitObjectCode(); }
+    catch (const std::exception &error) {
+      BackendDiagnostic diag;
+      diag.severity = BackendDiagnostic::Severity::kError;
+      diag.component = "EmitObjectCode";
+      diag.message = error.what();
+      result.diagnostics.push_back(std::move(diag));
+      result.ok = false;
+      return result;
+    }
     const auto t_obj1 = Clock::now();
     result.artifacts.stats.emit_micros +=
         static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
