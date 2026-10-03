@@ -521,6 +521,11 @@ if(Qt6_FOUND OR Qt5_FOUND)
     # Windows: deploy Qt runtime DLLs next to test_topology_ui.exe so that
     # CTest can run the test without manual PATH configuration.
     if(WIN32)
+        # Both executables deploy into the same build directory. Serialize
+        # windeployqt so parallel builds do not overwrite the same Qt DLLs.
+        if(TARGET polyui)
+            add_dependencies(test_topology_ui polyui)
+        endif()
         if(Qt6_FOUND)
             get_target_property(_qt_test_qmake Qt6::qmake IMPORTED_LOCATION)
         else()

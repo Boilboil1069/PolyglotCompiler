@@ -9,6 +9,7 @@
 #include "tools/ui/common/packages/dependency_graph.h"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <sstream>
 #include <unordered_set>

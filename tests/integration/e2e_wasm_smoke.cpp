@@ -12,10 +12,16 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 #include <vector>
 
 #include "tools/polyld/include/linker_wasm.h"
@@ -25,12 +31,19 @@ using namespace polyglot::linker::wasm;
 namespace {
 
 std::string TempPath(const char *tag) {
+#ifdef _WIN32
+  return (std::filesystem::temp_directory_path() /
+          ("polyld_wasm_smoke_" + std::to_string(::_getpid()) + "_" + tag +
+           ".wasm"))
+      .string();
+#else
   std::string base = "/tmp/polyld_wasm_smoke_";
   base += std::to_string(static_cast<long long>(::getpid()));
   base += "_";
   base += tag;
   base += ".wasm";
   return base;
+#endif
 }
 
 void WriteImage(const std::string &path, const std::vector<std::uint8_t> &b) {
@@ -42,8 +55,20 @@ void WriteImage(const std::string &path, const std::vector<std::uint8_t> &b) {
 }
 
 bool HaveWasmtime() {
+#ifdef _WIN32
+  return std::system("where wasmtime >NUL 2>&1") == 0;
+#else
   // POSIX-only: redirect stderr/stdout so the probe is silent.
   return std::system("command -v wasmtime > /dev/null 2>&1") == 0;
+#endif
+}
+
+std::string WasmtimeCommand(const std::string &path) {
+#ifdef _WIN32
+  return "wasmtime run --invoke _start \"" + path + "\" >NUL 2>&1";
+#else
+  return "wasmtime run --invoke _start " + path + " > /dev/null 2>&1";
+#endif
 }
 
 // `_start()` returning unit; body just executes `nop` then `end`.
@@ -85,7 +110,7 @@ TEST_CASE("Single-module wasm round-trip writes a parseable file",
   REQUIRE(reparsed.exports.front().name == "_start");
 
   if (HaveWasmtime()) {
-    std::string cmd = "wasmtime run --invoke _start " + path + " > /dev/null 2>&1";
+    std::string cmd = WasmtimeCommand(path);
     int rc = std::system(cmd.c_str());
     // Only assert that the loader accepted the file (exit code 0).
     REQUIRE(rc == 0);
@@ -151,7 +176,7 @@ TEST_CASE("Two-module merge produces a runnable wasm file",
   REQUIRE(reparsed.functions.size() == 2);
 
   if (HaveWasmtime()) {
-    std::string cmd = "wasmtime run --invoke _start " + path + " > /dev/null 2>&1";
+    std::string cmd = WasmtimeCommand(path);
     int rc = std::system(cmd.c_str());
     REQUIRE(rc == 0);
   }

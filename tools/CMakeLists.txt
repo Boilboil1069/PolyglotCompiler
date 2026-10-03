@@ -290,21 +290,18 @@ if(NOT DEFINED QT_ROOT)
 endif()
 if(QT_ROOT)
     if(WIN32)
-        file(GLOB _qt6_candidates "${QT_ROOT}/*/msvc*_64/lib/cmake/Qt6")
+        # Qt binaries must use the same ABI as the compiler linking polyui.
+        if(MINGW)
+            file(GLOB _qt6_candidates "${QT_ROOT}/*/mingw_64/lib/cmake/Qt6")
+        elseif(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+            file(GLOB _qt6_candidates "${QT_ROOT}/*/msvc*_64/lib/cmake/Qt6")
+        endif()
         if(_qt6_candidates)
             list(SORT _qt6_candidates)
             list(GET _qt6_candidates -1 _qt6_best)
             get_filename_component(_qt6_prefix "${_qt6_best}/../../.." ABSOLUTE)
             list(PREPEND CMAKE_PREFIX_PATH "${_qt6_prefix}")
             message(STATUS "Qt hint: ${_qt6_prefix}")
-        endif()
-        file(GLOB _qt6_mingw "${QT_ROOT}/*/mingw_64/lib/cmake/Qt6")
-        if(_qt6_mingw AND NOT _qt6_candidates)
-            list(SORT _qt6_mingw)
-            list(GET _qt6_mingw -1 _qt6_mg_best)
-            get_filename_component(_qt6_mg_prefix "${_qt6_mg_best}/../../.." ABSOLUTE)
-            list(PREPEND CMAKE_PREFIX_PATH "${_qt6_mg_prefix}")
-            message(STATUS "Qt hint (MinGW): ${_qt6_mg_prefix}")
         endif()
     elseif(APPLE)
         file(GLOB _qt6_mac "${QT_ROOT}/*/macos/lib/cmake/Qt6")
@@ -552,7 +549,6 @@ if(Qt6_FOUND OR Qt5_FOUND)
                     --no-translations
                     --no-system-d3d-compiler
                     --no-opengl-sw
-                    --no-compiler-runtime
                     "$<TARGET_FILE:polyui>"
                 COMMENT "Running windeployqt to deploy Qt runtime DLLs..."
                 VERBATIM
@@ -560,6 +556,39 @@ if(Qt6_FOUND OR Qt5_FOUND)
             message(STATUS "windeployqt found at ${WINDEPLOYQT_EXECUTABLE} — DLLs will be auto-deployed")
         else()
             message(WARNING "windeployqt not found — Qt DLLs must be manually copied next to polyui.exe")
+        endif()
+        # The Windows UI smoke test uses --headless, which needs Qt's
+        # offscreen platform plugin in addition to windeployqt's qwindows.
+        if(EXISTS "${_qt_bin_dir}/../plugins/platforms/qoffscreen.dll")
+            add_custom_command(TARGET polyui POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:polyui>/platforms"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_qt_bin_dir}/../plugins/platforms/qoffscreen.dll"
+                    "$<TARGET_FILE_DIR:polyui>/platforms/qoffscreen.dll"
+                VERBATIM)
+        endif()
+        if(EXISTS "${_qt_bin_dir}/../plugins/platforms/qoffscreend.dll")
+            add_custom_command(TARGET polyui POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:polyui>/platforms"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_qt_bin_dir}/../plugins/platforms/qoffscreend.dll"
+                    "$<TARGET_FILE_DIR:polyui>/platforms/qoffscreend.dll"
+                VERBATIM)
+        endif()
+        if(MINGW)
+            # windeployqt uses its bundled MinGW runtime, which can be older
+            # than the compiler used for this build. Deploy the compiler's DLLs
+            # last so Windows loads the ABI-compatible versions.
+            get_filename_component(_mingw_compiler_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+            foreach(_mingw_runtime IN ITEMS libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll)
+                if(EXISTS "${_mingw_compiler_bin}/${_mingw_runtime}")
+                    add_custom_command(TARGET polyui POST_BUILD
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "${_mingw_compiler_bin}/${_mingw_runtime}"
+                            "$<TARGET_FILE_DIR:polyui>/${_mingw_runtime}"
+                        VERBATIM)
+                endif()
+            endforeach()
         endif()
     endif()
 

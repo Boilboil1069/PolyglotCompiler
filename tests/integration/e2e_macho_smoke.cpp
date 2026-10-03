@@ -14,9 +14,14 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#ifdef _WIN32
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 #include <vector>
 
 #if defined(__APPLE__)
@@ -32,11 +37,17 @@ namespace {
 std::string TempPath(const char *tag) {
   // mkstemp would race on the suffix; using PID + tag is plenty for a
   // single-process catch run and survives parallel ctest invocations.
+#ifdef _WIN32
+  return (std::filesystem::temp_directory_path() /
+          ("polyld_macho_smoke_" + std::to_string(::_getpid()) + "_" + tag))
+      .string();
+#else
   std::string base = "/tmp/polyld_macho_smoke_";
   base += std::to_string(static_cast<long long>(::getpid()));
   base += "_";
   base += tag;
   return base;
+#endif
 }
 
 void WriteImage(const std::string &path, const std::vector<std::uint8_t> &b) {

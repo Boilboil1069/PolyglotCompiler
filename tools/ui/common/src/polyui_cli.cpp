@@ -34,6 +34,7 @@
 
 #include "common/include/version.h"
 #include "tools/ui/common/include/code_editor.h"
+#include "tools/ui/common/include/file_browser.h"
 #include "tools/ui/common/include/mainwindow.h"
 #include "tools/ui/common/include/native_trace_panel.h"
 #include "tools/ui/common/include/polyui_cli.h"
@@ -223,6 +224,10 @@ int HandleValidateThemeCli(const QString &path) {
 
 int HandleScreenshotCli(QWidget *root_widget, const QString &out_path) {
   if (!root_widget || out_path.isEmpty()) return 2;
+#ifdef Q_OS_WIN
+  // Fresh Windows build directories do not have ui-validation/ yet.
+  if (!QDir().mkpath(QFileInfo(out_path).absolutePath())) return 4;
+#endif
   // File-system models settle asynchronously and external volumes can take
   // seconds to enumerate. Wait for actual rows, rather than recording an empty
   // explorer merely because a fixed startup delay elapsed.
@@ -310,6 +315,31 @@ int RunWorkspaceSmoke(MainWindow *window, const PolyUiCliOptions &options) {
     std::cerr << "polyui smoke: source documentation / preview mismatch\n"; return 5;
   }
   if (!options.screenshot.isEmpty() && HandleScreenshotCli(window, options.screenshot) != 0) return 6;
+#ifdef Q_OS_WIN
+  // Opening a Poly file must also leave it visible in the Windows explorer.
+  auto *browser = window->findChild<FileBrowser *>();
+  auto *tree = browser ? browser->findChild<QTreeView *>() : nullptr;
+  auto *model = tree ? qobject_cast<QFileSystemModel *>(tree->model()) : nullptr;
+  if (!model) {
+    std::cerr << "polyui smoke: Windows explorer is unavailable\n";
+    return 7;
+  }
+  if (QFileInfo(options.initial_file).absolutePath() == model->rootPath()) {
+    const QModelIndex root = tree->rootIndex();
+    bool found = false;
+    for (int row = 0; row < model->rowCount(root); ++row) {
+      if (QFileInfo(model->filePath(model->index(row, 0, root))).absoluteFilePath() ==
+          QFileInfo(options.initial_file).absoluteFilePath()) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      std::cerr << "polyui smoke: Poly file is missing from Windows explorer\n";
+      return 7;
+    }
+  }
+#endif
   bool action_triggered = false;
   QTimer::singleShot(0, window, [&]() {
     auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());

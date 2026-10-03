@@ -19,7 +19,13 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 #include <vector>
 
 #include "tools/polyld/include/linker_pe.h"
@@ -37,6 +43,19 @@ T LoadLE(const std::vector<std::uint8_t> &b, std::size_t offset) {
 }
 
 std::string MakeTempDefFile(const std::string &body) {
+#ifdef _WIN32
+  char temp_dir[MAX_PATH];
+  const DWORD length = GetTempPathA(MAX_PATH, temp_dir);
+  REQUIRE(length > 0);
+  REQUIRE(length < MAX_PATH);
+  char temp_file[MAX_PATH];
+  REQUIRE(GetTempFileNameA(temp_dir, "pld", 0, temp_file) != 0);
+  std::ofstream out(temp_file, std::ios::binary | std::ios::trunc);
+  REQUIRE(out.is_open());
+  out.write(body.data(), static_cast<std::streamsize>(body.size()));
+  REQUIRE(out.good());
+  return temp_file;
+#else
   // Use mkstemp to avoid the tmpnam-deprecation warning while keeping the
   // payload self-contained per test invocation.
   char templ[] = "/tmp/polyld_bin4_XXXXXX";
@@ -45,6 +64,7 @@ std::string MakeTempDefFile(const std::string &body) {
   ::write(fd, body.data(), body.size());
   ::close(fd);
   return std::string(templ);
+#endif
 }
 
 } // namespace
