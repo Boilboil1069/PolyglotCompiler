@@ -57,6 +57,7 @@ struct DiagnosticInfo {
     std::string message;
   };
   std::vector<Related> related;
+  std::string source_file; // Original diagnostic file; may differ from the open Poly document.
 };
 
 // ============================================================================
@@ -115,8 +116,8 @@ public:
 
   // Full compilation pipeline
   CompileResult Compile(const std::string &source, const std::string &language,
-                        const std::string &filename, const std::string &target_arch,
-                        int opt_level) const;
+                        const std::string &filename, const std::string &target_arch, int opt_level,
+                        const std::string &trace_file = {}) const;
 
   // Auto-completion at a given cursor position
   std::vector<CompletionItem> Complete(const std::string &source, const std::string &language,

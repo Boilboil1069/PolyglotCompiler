@@ -180,6 +180,8 @@ struct DriverSettings {
   std::string emit_call_graph_path{};
   std::string emit_profile_symbols_path{};
   bool profile_instrument{false};
+  std::string trace_calls_path{};
+  std::string build_report_path{};
 
   // -------------------------------------------------------------------------
   // Per-language version selection.

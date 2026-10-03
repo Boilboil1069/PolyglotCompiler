@@ -289,177 +289,144 @@ void RepairPhis(Function &func) {
 }
 
 void CanonicalizeCFG(Function &func) {
-  bool changed = true;
-  while (changed) {
-    changed = false;
-
-    // remove unreachable blocks
+  // Rebuild after each structural change. Cached predecessors/successors must
+  // never outlive a removed block or a replaced terminator.
+  for (;;) {
     auto cfg = BuildCFG(func);
     std::unordered_set<BasicBlock *> reachable;
-    std::vector<BasicBlock *> stack;
+    std::vector<BasicBlock *> work;
     if (cfg.entry)
-      stack.push_back(cfg.entry);
-    while (!stack.empty()) {
-      auto *b = stack.back();
-      stack.pop_back();
-      if (!reachable.insert(b).second)
+      work.push_back(cfg.entry);
+    while (!work.empty()) {
+      auto *block = work.back();
+      work.pop_back();
+      if (!reachable.insert(block).second)
         continue;
-      for (auto *s : b->successors)
-        stack.push_back(s);
+      for (auto *next : block->successors)
+        work.push_back(next);
     }
-    auto before = func.blocks.size();
-    func.blocks.erase(std::remove_if(func.blocks.begin(), func.blocks.end(),
-                                     [&](const std::shared_ptr<BasicBlock> &bb) {
-                                       return reachable.count(bb.get()) == 0;
-                                     }),
-                      func.blocks.end());
-    if (func.blocks.size() != before)
-      changed = true;
-
-    // rebuild preds
-    for (auto &bb_ptr : func.blocks)
-      bb_ptr->predecessors.clear();
-    for (auto &bb_ptr : func.blocks) {
-      auto *bb = bb_ptr.get();
-      for (auto *succ : bb->successors) {
-        succ->predecessors.push_back(bb);
-      }
-    }
-
+    const auto old_size = func.blocks.size();
+    std::erase_if(func.blocks, [&](const auto &block) { return !reachable.count(block.get()); });
+    if (func.blocks.size() != old_size)
+      BuildCFG(func);
     RepairPhis(func);
 
-    // simplify branches on constants and trivial cond branches
-    for (auto &bb_ptr : func.blocks) {
-      auto *bb = bb_ptr.get();
-      if (!bb->terminator)
+    bool changed = false;
+    for (const auto &block : func.blocks) {
+      auto *branch = dynamic_cast<CondBranchStatement *>(block->terminator.get());
+      if (!branch)
         continue;
-      if (auto *cbr = dynamic_cast<CondBranchStatement *>(bb->terminator.get())) {
-        long long val;
-        bool const_cond =
-            TryParseConst(cbr->operands.empty() ? std::string() : cbr->operands[0], val);
-        if (const_cond) {
-          bb->terminator = std::make_shared<BranchStatement>();
-          auto *br = dynamic_cast<BranchStatement *>(bb->terminator.get());
-          br->target = val ? cbr->true_target : cbr->false_target;
-          changed = true;
-        } else if (cbr->true_target == cbr->false_target) {
-          bb->terminator = std::make_shared<BranchStatement>();
-          auto *br = dynamic_cast<BranchStatement *>(bb->terminator.get());
-          br->target = cbr->true_target;
-          changed = true;
+      long long condition = 0;
+      const bool constant =
+          TryParseConst(branch->operands.empty() ? "" : branch->operands[0], condition);
+      if (!constant && branch->true_target != branch->false_target)
+        continue;
+      // Read the old targets before replacing their owning shared_ptr.
+      auto *target =
+          constant ? (condition ? branch->true_target : branch->false_target) : branch->true_target;
+      auto replacement = std::make_shared<BranchStatement>();
+      replacement->target = target;
+      block->SetTerminator(replacement);
+      changed = true;
+    }
+    if (changed)
+      continue;
+
+    for (const auto &block : func.blocks) {
+      auto *branch = dynamic_cast<BranchStatement *>(block->terminator.get());
+      auto *next = branch ? branch->target : nullptr;
+      if (!next || next == block.get() || next == func.entry || next->predecessors.size() != 1)
+        continue;
+      std::unordered_map<std::string, std::string> replacements;
+      bool complete_phis = true;
+      for (const auto &phi : next->phis) {
+        if (phi->incomings.size() != 1 || phi->incomings[0].first != block.get()) {
+          complete_phis = false;
+          break;
+        }
+        replacements[phi->name] = phi->incomings[0].second;
+      }
+      if (!complete_phis)
+        continue;
+      ApplySubstitutions(func, replacements);
+      for (const auto &instruction : next->instructions)
+        block->AddInstruction(instruction);
+      block->SetTerminator(next->terminator);
+      for (const auto &destination : func.blocks)
+        for (const auto &phi : destination->phis)
+          for (auto &incoming : phi->incomings)
+            if (incoming.first == next)
+              incoming.first = block.get();
+      std::erase_if(func.blocks, [&](const auto &candidate) { return candidate.get() == next; });
+      changed = true;
+      break;
+    }
+    if (changed)
+      continue;
+
+    for (const auto &block : func.blocks) {
+      if (block.get() == func.entry || !block->phis.empty() || !block->instructions.empty())
+        continue;
+      auto *branch = dynamic_cast<BranchStatement *>(block->terminator.get());
+      auto *target = branch ? branch->target : nullptr;
+      if (!target || target == block.get())
+        continue;
+      // A predecessor already reaching the target may carry a different phi
+      // value on that edge. Such a forwarding block cannot be removed.
+      bool safe = true;
+      for (const auto &phi : target->phis) {
+        const auto edge =
+            std::find_if(phi->incomings.begin(), phi->incomings.end(),
+                         [&](const auto &incoming) { return incoming.first == block.get(); });
+        if (edge == phi->incomings.end()) {
+          safe = false;
+          break;
+        }
+        for (auto *pred : block->predecessors)
+          for (const auto &incoming : phi->incomings)
+            if (incoming.first == pred && incoming.second != edge->second)
+              safe = false;
+      }
+      if (!safe)
+        continue;
+      for (const auto &phi : target->phis) {
+        const auto edge =
+            std::find_if(phi->incomings.begin(), phi->incomings.end(),
+                         [&](const auto &incoming) { return incoming.first == block.get(); });
+        const auto value = edge->second;
+        std::erase_if(phi->incomings,
+                      [&](const auto &incoming) { return incoming.first == block.get(); });
+        for (auto *pred : block->predecessors)
+          if (std::none_of(phi->incomings.begin(), phi->incomings.end(),
+                           [&](const auto &incoming) { return incoming.first == pred; }))
+            phi->incomings.push_back({pred, value});
+      }
+      for (auto *pred : block->predecessors) {
+        if (auto *br = dynamic_cast<BranchStatement *>(pred->terminator.get())) {
+          if (br->target == block.get())
+            br->target = target;
+        } else if (auto *br = dynamic_cast<CondBranchStatement *>(pred->terminator.get())) {
+          if (br->true_target == block.get())
+            br->true_target = target;
+          if (br->false_target == block.get())
+            br->false_target = target;
+        } else if (auto *sw = dynamic_cast<SwitchStatement *>(pred->terminator.get())) {
+          for (auto &item : sw->cases)
+            if (item.target == block.get())
+              item.target = target;
+          if (sw->default_target == block.get())
+            sw->default_target = target;
         }
       }
+      auto *removed = block.get();
+      std::erase_if(func.blocks, [&](const auto &candidate) { return candidate.get() == removed; });
+      changed = true;
+      break;
     }
-
-    // merge linear blocks: bb -> succ where bb has single succ and succ single pred
-    for (auto it = func.blocks.begin(); it != func.blocks.end();) {
-      auto *bb = it->get();
-      if (bb == func.entry) {
-        ++it;
-        continue;
-      }
-      if (bb->successors.size() == 1) {
-        BasicBlock *succ = bb->successors[0];
-        if (succ && succ->predecessors.size() == 1 && succ != bb) {
-          // fold succ's phis
-          std::unordered_map<std::string, std::string> subst;
-          for (auto &phi : succ->phis) {
-            if (phi->incomings.size() == 1) {
-              subst[phi->name] = phi->incomings[0].second;
-            }
-          }
-          if (!subst.empty())
-            ApplySubstitutions(func, subst);
-
-          // move instructions
-          bb->instructions.insert(bb->instructions.end(), succ->instructions.begin(),
-                                  succ->instructions.end());
-          bb->terminator = succ->terminator;
-          bb->successors = succ->successors;
-
-          // update succ successors' predecessors
-          for (auto *ss : succ->successors) {
-            if (!ss)
-              continue;
-            for (auto &p : ss->predecessors) {
-              if (p == succ)
-                p = bb;
-            }
-          }
-
-          // erase succ from function
-          it = func.blocks.erase(std::remove_if(func.blocks.begin(), func.blocks.end(),
-                                                [&](const std::shared_ptr<BasicBlock> &ptr) {
-                                                  return ptr.get() == succ;
-                                                }),
-                                 func.blocks.end());
-          changed = true;
-          continue;
-        }
-      }
-      ++it;
-    }
-
-    // remove empty forwarding blocks (no phis/instructions) with single branch
-    for (auto it = func.blocks.begin(); it != func.blocks.end();) {
-      auto *bb = it->get();
-      if (bb == func.entry) {
-        ++it;
-        continue;
-      }
-      if (!bb->phis.empty() || !bb->instructions.empty()) {
-        ++it;
-        continue;
-      }
-      if (auto *br = dynamic_cast<BranchStatement *>(bb->terminator.get())) {
-        BasicBlock *target = br->target;
-        if (target && target != bb) {
-          // redirect predecessors
-          for (auto *pred : bb->predecessors) {
-            if (auto *pred_br = dynamic_cast<BranchStatement *>(pred->terminator.get())) {
-              if (pred_br->target == bb)
-                pred_br->target = target;
-            } else if (auto *pred_cbr =
-                           dynamic_cast<CondBranchStatement *>(pred->terminator.get())) {
-              if (pred_cbr->true_target == bb)
-                pred_cbr->true_target = target;
-              if (pred_cbr->false_target == bb)
-                pred_cbr->false_target = target;
-            } else if (auto *pred_sw = dynamic_cast<SwitchStatement *>(pred->terminator.get())) {
-              for (auto &c : pred_sw->cases)
-                if (c.target == bb)
-                  c.target = target;
-              if (pred_sw->default_target == bb)
-                pred_sw->default_target = target;
-            }
-          }
-          // fix phi incomings in target
-          for (auto &phi : target->phis) {
-            for (auto &inc : phi->incomings) {
-              if (inc.first == bb)
-                inc.first = nullptr; // will be repaired
-            }
-          }
-
-          it = func.blocks.erase(it);
-          changed = true;
-          RepairPhis(func);
-          continue;
-        }
-      }
-      ++it;
-    }
+    if (!changed)
+      break;
   }
-
-  // final rebuild preds and repair phis
-  for (auto &bb_ptr : func.blocks)
-    bb_ptr->predecessors.clear();
-  for (auto &bb_ptr : func.blocks) {
-    auto *bb = bb_ptr.get();
-    for (auto *succ : bb->successors) {
-      succ->predecessors.push_back(bb);
-    }
-  }
+  BuildCFG(func);
   RepairPhis(func);
 }
 

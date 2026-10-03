@@ -1,132 +1,102 @@
-# Data-driven order authorization and fulfillment engine
+# Four-language order application: native execution and acceptance
 
-This is an end-to-end `polyc` business fixture: one `.poly` entry, one build command, four built-in language frontends, four vendored packages with object models, runtime CSV input, and one native executable produced by the local `polyld`.
+`order_risk.poly` orchestrates C++ pricing, Python fraud assessment, Rust inventory/payment, and Go logistics. One `polyc` invocation discovers sources and four project-local package manifests, compiles them with the built-in frontends, and links one native executable with `polyld`.
+
+Building the application does not invoke official language compilers or interpreters. The acceptance harness separately runs the original module implementations with official tools to provide an independent comparison.
+
+## Build and run
+
+Build `polyc` and `polyld` in the repository first:
+
+```sh
+cd examples/order_risk_analyzer
+POLYGLOT_BUILD_DIR=build-release ./run.sh
+```
+
+The script has one compiler invocation, equivalent to:
+
+```sh
+../../build-release/polyc --strict --no-package-index -O0 --regalloc=linear \
+  --build-report=build/polyc/build-report.json \
+  -o build/polyc/order_risk order_risk.poly
+build/polyc/order_risk data/orders.csv order-results.txt
+```
+
+Use `POLY_OPT_LEVEL=0..3` and `POLY_REGALLOC=linear|graph` with `run.sh`. Its first and second arguments select the input and output paths, defaulting to `data/orders.csv` and `order-results.txt`. Success exits **0**. stdout and the result file contain identical bytes:
 
 ```text
-data/orders.csv
-       |
-       v
-Poly file I/O, recursive stream processing, aggregation, assertions
-       |
-       +--> C++ order_policy: construction, state, methods, destruction
-       +--> Python fraud_policy: construction, state, methods, explicit cleanup
-       +--> Rust fulfillment_policy: struct construction, &self/&mut self methods
-       +--> Go logistics_policy: struct construction and pointer receivers
-       |
-       v
-8 rows + category totals + checksum 483 -> process status 232
+ORDER 1001 116
+ORDER 1002 113
+ORDER 1003 20
+ORDER 1004 40
+ORDER 1005 30
+ORDER 1006 20
+ORDER 1007 114
+ORDER 1008 30
+SUMMARY 8 3 2 1 2 483
 ```
 
-The user does not invoke clang/GCC, CPython, rustc, Go, `polyld`, a package manager, or a manual `-I` step.
+The summary contains row count, approvals, reviews, fraud rejections, inventory rejections and the decision checksum. Counts are computed at runtime; neither eight rows nor checksum 483 is hard-coded.
 
-## Package resolution and object paths in all four languages
+## Input and errors
 
-The Poly entry declares four project-vendored packages:
+The eight fields are `order_id,unit_price,quantity,recent_orders,failed_payments,available_units,delivery_zone,expected_decision`. IDs must be positive; price is `1..1000000`, quantity `1..1000`, recent orders and available stock `0..1000000`, failed payments `0..1000`, and delivery zone `1..3`.
 
-```poly
-IMPORT cpp PACKAGE order_policy >= 1.0;
-IMPORT python PACKAGE fraud_policy >= 1.0;
-IMPORT rust PACKAGE fulfillment_policy >= 1.0;
-IMPORT go PACKAGE logistics_policy >= 1.0;
-```
+The runtime reads an integer stream, skipping header text and delimiters. It is not a complete CSV syntax parser and does not reject every possible quoting or delimiter error. Empty inputs, incomplete records, invalid business ranges and incorrect expected decisions fail without a success summary. Earlier valid output rows may remain after a later failure.
 
-The Poly frontend parses each dependency name and constraint. `polyc` locates its `poly.package.toml`, validates `name`, `language`, and manifest `version` against `>=`/`<=`/`==`/`>`/`<`/`~=`, and rejects absolute paths, `..`, or symlinks escaping the project's canonical `packages/` root. With `--no-package-index`, missing, duplicate, wrong-language, source-package-without-`source`, or version-incompatible declarations fail closed; C++ may instead declare a header-only package through `include_dir`. That include root is passed to the built-in preprocessor, so the following works without command-line include flags:
+Exit codes: `220` input open failure; `221` close failure; `222` empty/truncated/invalid input; `225` expected-result mismatch, including object consistency failures; `226` unclassified decision; `227` output open/write failure; `228` summary allocation failure.
 
-```cpp
-#include <order_policy/pricing_session.hpp>
-```
+## Actual object and package paths
 
-The Python, Rust, and Go manifests contribute declared source files that are deterministically merged with their consumers. The same bundle is used by foreign-signature extraction and final object compilation. Go package declarations are normalized to the consumer's `package main`. No pip, Cargo, Go modules, package index, or network fetch is invoked.
+All 16 foreign calls remain part of the real per-order computation. Each language compares independent free-function rules with an object method result:
 
-Each language executes an object path for every row: C++ `OrderPricingSession` has four fields, a constructor, stateful methods, and a destructor; Python `FraudAssessment` has `__init__`, four fields, mutating/read methods, and explicit `close`; Rust `FulfillmentSession` uses named-field construction plus `&self` and `&mut self` methods; Go `LogisticsSession` uses stack allocation, a constructor function, and pointer-receiver mutation/read methods. Each object wrapper is checked against independent free-function rules, so errors return `60`–`63` instead of remaining dead sample code.
-
-These are real aggregate states lowered through the language frontends and IR/backend. In particular, the C++ object's x86_64 fields are addressed at byte offsets `0/4/8/12` through aggregate GEP, loads, stores, and address calculation.
-
-## Runtime data processing
-
-The executable opens `data/orders.csv` at runtime; its eight rows are not embedded as constants. `polyc` injects a small repository-owned native runtime only when these APIs are referenced:
-
-- `file_open_ints(path)` opens the input;
-- `file_next_int(fd, eof)` skips CSV headers/delimiters and parses the next signed integer;
-- `file_close(fd)` closes the descriptor.
-
-`process_order_stream` recursively reads until actual EOF and carries row count, decision checksum, and category totals through normal native ABI arguments. It is not an unrolled sequence of eight reads. The test copies the CSV, changes the first order's quantity while keeping its expected decision unchanged, then runs the same already-compiled executable and requires the controlled validation status `225`. This proves that a real business input field reaches the compiled pricing, inventory, and logistics calculation.
-
-The current file runtime uses direct x86_64 Linux/macOS syscalls and does not depend on libc or CPython.
-
-## Sixteen cross-language business calls
-
-- C++: `pricing_subtotal`, `pricing_discount`, `pricing_payable`, `pricing_session_payable`
-- Python: `fraud_velocity_points`, `fraud_amount_points`, `fraud_risk_band`, `fraud_session_band`
-- Rust: `inventory_reservable`, `payment_authorization`, `fulfillment_gate`, `fulfillment_session_gate`
-- Go: `logistics_base_days`, `logistics_capacity_delay`, `logistics_decision`, `logistics_session_decision`
-
-The policies include nested branches, early returns, cross-stage dependencies, and four final outcomes. Approved orders become `100 + risk band * 10 + ETA`; review, fraud rejection, and inventory rejection are `20`, `40`, and `30`.
-
-## CSV acceptance data
-
-| Order | Primary path | Decision |
-| ---: | --- | ---: |
-| 1001 | Standard approval, zone 2 | 116 |
-| 1002 | Small-order approval | 113 |
-| 1003 | Medium risk and high amount, manual review | 20 |
-| 1004 | Three failed payments, fraud rejection | 40 |
-| 1005 | Insufficient stock after safety reserve | 30 |
-| 1006 | Ten-day ETA, SLA review | 20 |
-| 1007 | Object pricing path and zone-1 approval | 114 |
-| 1008 | Zero sellable stock | 30 |
-
-The aggregate is 8 rows, 3 approvals, 2 reviews, 1 fraud rejection, 2 inventory rejections, and checksum `483`. Success returns `483 - 251 = 232`.
-
-## One build command
-
-`run.sh` contains one compiler invocation:
-
-```bash
-../../build/polyc --strict --no-package-index -O0 \
-  -o build/polyc/order_risk order_risk.poly
-```
-
-`--no-package-index` prevents host package-manager probing; all four packages resolve from project-local manifests. Four source imports plus four package declarations drive built-in frontend compilation, sixteen `CALL` sites drive signature/link validation, the file runtime is injected on demand, and local `polyld` emits the executable.
-
-## Files
-
-| File | Responsibility |
+| Module | Vendored package and object |
 | --- | --- |
-| `order_risk.poly` | Four package dependencies, CSV streaming, 16 foreign calls, aggregation, assertions |
-| `packages/order_policy/poly.package.toml` | Vendored package metadata and include-root declaration |
-| `packages/order_policy/include/order_policy/pricing_session.hpp` | Four-field C++ class, constructor/destructor, and member methods |
-| `packages/fraud_policy/{poly.package.toml,src/fraud_policy.py}` | Python package manifest and `FraudAssessment` class |
-| `packages/fulfillment_policy/{poly.package.toml,src/fulfillment_policy.rs}` | Rust package manifest and `FulfillmentSession` type |
-| `packages/logistics_policy/{poly.package.toml,src/logistics_policy.go}` | Go package manifest and `LogisticsSession` type |
-| `cpp/pricing_engine.cpp` | C++ object adapter and three independent pricing rules |
-| `python/fraud_engine.py` | Python object adapter and three fraud rules |
-| `rust/fulfillment_engine.rs` | Rust object adapter and three inventory/payment rules |
-| `go/logistics_engine.go` | Go object adapter and three logistics/decision rules |
-| `data/orders.csv` | Runtime business input and expected decisions |
-| `run.sh` | Sole build command, execution, and status check |
-| `test.sh` | Artifact, symbol, package-resolution, and data-sensitivity audit |
+| C++ `pricing_engine.cpp` | `order_policy`: four-field `OrderPricingSession`, constructor, field mutation, methods, destructor |
+| Python `fraud_engine.py` | `fraud_policy`: `FraudAssessment`, initialization, mutation, classification, explicit `close()` |
+| Rust `fulfillment_engine.rs` | `fulfillment_policy`: `FulfillmentSession`, named-field construction, `&self` / `&mut self` methods |
+| Go `logistics_engine.go` | `logistics_policy`: `LogisticsSession`, construction and pointer receiver mutation/read |
 
-## Run
+`IMPORT <language> PACKAGE <name> >= 1.0` resolves `poly.package.toml` under the project's `packages/`. C++ declares an include root; the other packages declare source units merged into their consumer. `--no-package-index` prevents host package-manager/network-index queries. Signature extraction and actual compilation use the same package sources.
 
-Build `polyc` and `polyld` at the repository root, then:
+Objects stay in their own language modules and cross-language calls use integer scalars. This checks manifest-driven local source/header vendoring, not the complete pip/Cargo/Go modules ecosystem. Explicit Python/Rust cleanup does not claim Python GC or Rust `Drop`; Go has no destructor claim.
 
-```bash
-cd examples/order_risk_analyzer
-./run.sh
-./test.sh
+## Full regression
+
+From the repository root:
+
+```sh
+python3 tests/native_programs/mixed_regression.py \
+  --polyc build-release/polyc --output-root build-release/mixed-regression \
+  --require-reference
 ```
 
-Use `POLYGLOT_BUILD_DIR=build-release ./test.sh` to select another build tree inside the repository. The scripts reject toolchains outside this repository.
+Alternatively run `./test.sh --require-reference` from this directory. The default matrix is **O0–O3 × linear/graph: eight build configurations**. Each executable is reused for ten scenarios: baseline; changed quantity with updated expectation; 24 rows; reversed rows; changed quantity with stale expectation; truncated record; invalid quantity; empty input; missing input; output path that is a directory.
 
-On supported x86_64 POSIX hosts the same audit is registered with CTest:
+Success checks exact stdout, exact file content, empty stderr and exit 0. Negative cases check the specified nonzero exit and output, so a crash is not accepted as a successful rejection. The `polyglot.native-build.v1` report must contain successful Poly/C++/Python/Rust/Go modules, module timing and object paths, and the requested optimization and allocator settings for every module.
 
-```bash
-ctest --test-dir build --output-on-failure -R '^example_order_risk_analyzer$'
+Official reference adapters preserve the original foreign source/package bodies and add standard entry/I/O code. A Python harness composes their outputs and checks them against a separate integer-rule oracle and the native application. Missing official tools remain coverage gaps; `--require-reference` makes them fail. Poly has no independent official implementation.
+
+## Performance protocol
+
+After regression passes, reserve a quiet CPU window:
+
+```sh
+python3 scripts/benchmark_mixed_native.py --polyc build-release/polyc \
+  --output build-release/mixed-performance/run-001 \
+  --warmups 1 --repetitions 7 --row-counts 8 800 8000 --require-reference
 ```
 
-## Current boundary
+The output directory must be new. A recorded random seed shuffles configuration order each round. Every compile uses a fresh application copy and artifact directory; source copying and official reference builds are outside measured native compilation. OS caches are not flushed.
 
-The cross-language ABI intentionally remains deterministic scalar integers; object state stays inside its owning language module rather than crossing as a handle. C++ has deterministic destruction. The current static Python/Rust subsets use explicit `close`, and Go has no destructor semantics, so this example does not claim GC, Rust `Drop`, or a Go destructor. This validates project-local, manifest-driven single-source header/source vendoring, not arbitrary pip/Cargo/Go-module ecosystems or remote downloads. The current vertical slice uses one consumer unit per language; independently objectifying one shared source package into multiple same-language consumers still needs a module model, and merged Go consumers do not yet reorganize arbitrary import blocks. The native file runtime currently supports x86_64 Linux/macOS; unsupported targets fail explicitly instead of falling back to a system compiler or interpreter.
+The default protocol has 64 fresh builds: eight configurations × (one warmup + seven measured samples). First-launch latency is retained separately. After the ten acceptance scenarios, each executable independently runs 8, 800 and 8000 rows in a seeded shuffled order; no acceptance timing is reused. Each size starts a fresh process from an executable that has already been launched. Larger inputs repeat the same rule mix with unique IDs and recompute every decision and summary through the independent integer oracle. All output bytes and the result file must match at every size. Official source comparison covers the four smaller acceptance scenarios; larger sizes measure input-volume scaling, not additional business-rule coverage.
+
+The report retains total and per-module compile time, runtime distributions by row count, available peak RSS, executable size, raw samples, commands, versions and hashes. RSS uses per-child `wait4` resource records, not simultaneous aggregate process-tree memory. Runtime includes startup, input, stdout and file writes. Any failed acceptance or scale case suppresses that configuration's performance aggregates. Warmups are retained but excluded. A one-sample precheck is not a formal performance result.
+
+## CI and reference tools
+
+The main CI calls `.github/workflows/native-validation.yml`, also available through manual dispatch. Linux/macOS jobs explicitly install reference tools and Qt, then run native differential/runtime/entry tests, the mixed matrix and the actual Qt workspace smoke. macOS ARM64 also executes native trace and numeric ABI regressions and checks real runtime values in the UI. Linux x86 runs the trace model tests; native tracing is explicitly outside its supported scope. Missing references, missing Qt targets and output mismatches fail. CI's one-sample benchmark checks collection only.
+
+See [official Rust installation](https://rust-lang.org/tools/install/) and [official Go installation](https://go.dev/doc/install). Discovered paths and versions are retained. Workflow configuration alone is not evidence that remote CI has run or passed.
 
 中文：[README_zh.md](README_zh.md)

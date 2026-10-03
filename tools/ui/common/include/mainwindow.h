@@ -11,6 +11,7 @@
 #include <QAction>
 #include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
@@ -18,6 +19,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -60,6 +62,11 @@ class MainWindow : public QMainWindow {
   Q_OBJECT
 
 public:
+  void RunWorkspaceDocument(bool trace, const QString &arguments);
+  bool IsProgramRunning() const {
+    return run_process_ && run_process_->state() != QProcess::NotRunning;
+  }
+  int LastRunExitCode() const { return last_run_exit_code_; }
   explicit MainWindow(QWidget *parent = nullptr);
   ~MainWindow() override;
   // Shared startup / test entry points use the same paths as UI actions.
@@ -287,6 +294,8 @@ private:
 
   QAction *action_compile_{nullptr};
   QAction *action_compile_run_{nullptr};
+  QAction *action_trace_calls_{nullptr};
+  QLineEdit *run_arguments_{nullptr};
   QAction *action_analyze_{nullptr};
   QAction *action_stop_{nullptr};
 
@@ -338,6 +347,9 @@ private:
   // ── Run Process (for Compile & Run) ──────────────────────────────────
   QProcess *run_process_{nullptr};
   QString last_compiled_binary_;
+  std::unique_ptr<QTemporaryDir> trace_session_directory_;
+  QString active_trace_file_;
+  int last_run_exit_code_{-1};
   // ── Panels ──────────────────────────────────────────────────────
   SettingsDialog *settings_dialog_{nullptr};
   class CommandPalette *command_palette_{nullptr};

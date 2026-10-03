@@ -401,3 +401,10 @@ jobs:
         with:
           name: samples_report-macos-14
           path: build/samples_report.json
+
+  # These jobs execute produced native programs and the real Qt workspace.
+  # A missing official reference toolchain or Qt target is a failing gate.
+  native-application-and-ui:
+    name: Native application and Qt acceptance
+    needs: [format-check]
+    uses: ./.github/workflows/native-validation.yml

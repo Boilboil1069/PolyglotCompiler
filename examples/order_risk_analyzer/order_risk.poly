@@ -95,15 +95,41 @@ FUNC evaluate_order(
     RETURN decision;
 }
 
-FUNC read_and_evaluate_order(fd: INT, eof: INT) -> INT {
-    // polyrt_read_i64_or skips CSV text/delimiters and parses the next signed
-    // integer. The descriptor offset is maintained by the kernel, so these
-    // calls form a real streaming reader rather than embedded constants.
+// Write the same bytes to stdout and the caller-selected result file.
+FUNC emit_order(out: INT, order_id: INT, decision: INT) -> INT {
+    IF file_write_text(1, "ORDER ") < 0 { RETURN 227; }
+    IF file_write_text(out, "ORDER ") < 0 { RETURN 227; }
+    IF file_write_int(1, order_id, 32) < 0 { RETURN 227; }
+    IF file_write_int(out, order_id, 32) < 0 { RETURN 227; }
+    IF file_write_int(1, decision, 10) < 0 { RETURN 227; }
+    IF file_write_int(out, decision, 10) < 0 { RETURN 227; }
+    RETURN 0;
+}
+
+FUNC emit_summary(out: INT, stats: INT) -> INT {
+    IF file_write_text(1, "SUMMARY ") < 0 { RETURN 227; }
+    IF file_write_text(out, "SUMMARY ") < 0 { RETURN 227; }
+    VAR index = 0;
+    WHILE index < 6 {
+        VAR delimiter = 32;
+        IF index == 5 { delimiter = 10; }
+        LET value = array_get(stats, index, -1);
+        IF file_write_int(1, value, delimiter) < 0 { RETURN 227; }
+        IF file_write_int(out, value, delimiter) < 0 { RETURN 227; }
+        index = index + 1;
+    }
+    RETURN 0;
+}
+
+FUNC process_order_stream(fd: INT, out: INT, stats: INT) -> INT {
+    // The integer reader skips header text and delimiters. A partial record
+    // reaches the sentinel and is rejected before calling any business rule.
+    LET eof = -999999;
     LET order_id = file_next_int(fd, eof);
     IF order_id == eof {
-        RETURN eof;
+        IF array_get(stats, 0, 0) == 0 { RETURN 222; }
+        RETURN emit_summary(out, stats);
     }
-
     LET unit_price = file_next_int(fd, eof);
     LET quantity = file_next_int(fd, eof);
     LET recent_orders = file_next_int(fd, eof);
@@ -111,77 +137,67 @@ FUNC read_and_evaluate_order(fd: INT, eof: INT) -> INT {
     LET available_units = file_next_int(fd, eof);
     LET delivery_zone = file_next_int(fd, eof);
     LET expected_decision = file_next_int(fd, eof);
+    IF order_id <= 0 { RETURN 222; }
+    IF unit_price <= 0 { RETURN 222; }
+    IF unit_price > 1000000 { RETURN 222; }
+    IF quantity <= 0 { RETURN 222; }
+    IF quantity > 1000 { RETURN 222; }
+    IF recent_orders < 0 { RETURN 222; }
+    IF recent_orders > 1000000 { RETURN 222; }
+    IF failed_payments < 0 { RETURN 222; }
+    IF failed_payments > 1000 { RETURN 222; }
+    IF available_units < 0 { RETURN 222; }
+    IF available_units > 1000000 { RETURN 222; }
+    IF delivery_zone < 1 { RETURN 222; }
+    IF delivery_zone > 3 { RETURN 222; }
+    IF expected_decision < 0 { RETURN 222; }
 
-    LET actual = evaluate_order(
-        unit_price,
-        quantity,
-        recent_orders,
-        failed_payments,
-        available_units,
-        delivery_zone
-    );
-    IF actual != expected_decision {
-        RETURN -1;
-    }
-    RETURN actual;
-}
-
-// Stream until actual EOF.  Tail recursion avoids embedding a fixed sequence
-// of eight reads and carries the aggregation state through ordinary native
-// ABI arguments.  stats_code packs rows/approved/review/fraud/inventory as
-// decimal fields; for this data set the expected aggregate is 8/3/2/1/2.
-FUNC process_order_stream(
-    fd: INT,
-    eof: INT,
-    row_count: INT,
-    checksum: INT,
-    stats_code: INT
-) -> INT {
-    LET decision = read_and_evaluate_order(fd, eof);
-
-    IF decision == eof {
-        IF row_count != 8 { RETURN 222; }
-        IF checksum != 483 { RETURN 223; }
-        IF stats_code != 83212 { RETURN 224; }
-        // POSIX process codes are one byte: 483 - 251 = 232.
-        RETURN checksum - 251;
-    }
-    IF decision < 0 {
-        RETURN 225;
-    }
-
-    // Every delta adds 10,000 for one processed row plus the matching
-    // category digit: approved/review/fraud/inventory respectively.
-    IF decision >= 100 {
-        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
-                                    stats_code + 11000);
-    }
-    IF decision == 20 {
-        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
-                                    stats_code + 10100);
-    }
-    IF decision == 40 {
-        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
-                                    stats_code + 10010);
-    }
-    IF decision == 30 {
-        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
-                                    stats_code + 10001);
-    }
-    RETURN 226;
+    LET actual = evaluate_order(unit_price, quantity, recent_orders,
+                                failed_payments, available_units, delivery_zone);
+    IF actual != expected_decision { RETURN 225; }
+    VAR category = 0;
+    IF actual >= 100 { category = 1; }
+    IF actual == 20 { category = 2; }
+    IF actual == 40 { category = 3; }
+    IF actual == 30 { category = 4; }
+    IF category == 0 { RETURN 226; }
+    LET write_status = emit_order(out, order_id, actual);
+    IF write_status != 0 { RETURN write_status; }
+    array_set(stats, 0, array_get(stats, 0, 0) + 1);
+    array_set(stats, category, array_get(stats, category, 0) + 1);
+    array_set(stats, 5, array_get(stats, 5, 0) + actual);
+    RETURN process_order_stream(fd, out, stats);
 }
 
 FUNC main() -> INT {
-    LET eof = 999999;
-    LET fd = file_open_ints("data/orders.csv");
-    IF fd < 0 {
-        RETURN 220;
+    VAR fd = -1;
+    IF args_count() >= 2 {
+        fd = file_open_ints(arg_text(1));
+    } ELSE {
+        fd = file_open_ints("data/orders.csv");
     }
-
-    LET audit_status = process_order_stream(fd, eof, 0, 0, 0);
-    LET close_status = file_close(fd);
-    IF close_status != 0 {
-        RETURN 221;
+    IF fd < 0 { RETURN 220; }
+    VAR out = -1;
+    IF args_count() >= 3 {
+        out = file_open_write(arg_text(2));
+    } ELSE {
+        out = file_open_write("order-results.txt");
     }
-    RETURN audit_status;
+    IF out < 0 {
+        file_close(fd);
+        RETURN 227;
+    }
+    LET stats = array_new(6);
+    IF stats == 0 {
+        file_close(fd);
+        file_close(out);
+        RETURN 228;
+    }
+    LET status = process_order_stream(fd, out, stats);
+    array_free(stats);
+    LET close_input = file_close(fd);
+    LET close_output = file_close(out);
+    IF close_input != 0 { RETURN 221; }
+    IF close_output != 0 { RETURN 221; }
+    RETURN status;
 }

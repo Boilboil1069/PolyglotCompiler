@@ -39,6 +39,9 @@ struct PolyUiCliOptions {
   QString workspace_view;
   QString peek_symbol;
   bool ui_smoke{false};
+  bool ui_trace_smoke{false};
+  QString run_arguments;
+  QString trace_file;
 
   // --- theme-system flags ---
   QString     theme;             ///< --theme <id|path>
@@ -62,6 +65,7 @@ PolyUiCliOptions ParsePolyUiArgs(int argc, char *argv[]);
 void PrepareWorkspaceCli(QApplication &app, const PolyUiCliOptions &options);
 void ApplyWorkspaceCli(MainWindow *window, const PolyUiCliOptions &options);
 int RunWorkspaceSmoke(MainWindow *window, const PolyUiCliOptions &options);
+int RunRuntimeTraceSmoke(MainWindow *window, const PolyUiCliOptions &options);
 
 /// Print the canonical @c --help banner shared across all platforms.
 void PrintPolyUiUsage();

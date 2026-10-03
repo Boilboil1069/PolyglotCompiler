@@ -1,0 +1,1650 @@
+{
+  "schema": "polyglot.mixed-evaluation-summary.v1",
+  "date": "2026-10-03",
+  "scope": "local macOS ARM64 only; remote CI has not been executed",
+  "host": {
+    "host": "macOS-27.0-arm64-arm-64bit",
+    "machine": "arm64",
+    "logical_cpus": 10,
+    "python_version": "3.9.6"
+  },
+  "measurement_started_at": "2026-10-03T10:40:16.667073+00:00",
+  "measurement_finished_at": "2026-10-03T10:41:17.955631+00:00",
+  "protocol": {
+    "opt_levels": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "allocators": [
+      "linear",
+      "graph"
+    ],
+    "warmups_per_configuration": 1,
+    "measured_samples_per_configuration": 7,
+    "configuration_seed": 20261003,
+    "runtime_size_seed": 357597209806,
+    "row_counts": [
+      8,
+      800,
+      8000
+    ],
+    "builds": 64,
+    "acceptance_executions": 640,
+    "independent_scale_executions": 192,
+    "native_executions": 832,
+    "measured_scale_observations": 168,
+    "warmup_scale_observations": 24,
+    "runtime": "independent size runs after ten acceptance scenarios; seeded shuffled size order; first launch reported separately",
+    "trace_instrumentation": false,
+    "os_cache_flush": false,
+    "first_launch": "first 8-row acceptance execution of a newly built binary, aggregated separately",
+    "memory": "wait4.ru_maxrss per child; not simultaneous process-tree RSS",
+    "p95": "nearest rank ceil(0.95*n); n=7 means the largest retained measured value",
+    "outlier_policy": "retain all samples; any acceptance or scale failure invalidates the whole configuration"
+  },
+  "compiler_sha256": "c6093f9977724821b2b717cf44216c8dc784be559def19a528ff0d627f162d4e",
+  "toolchain_sha256": {
+    "build-release/._libbackend_arm64.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libbackend_common.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libbackend_wasm.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libbackend_x86_64.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_common.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_cpp.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_dotnet.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_go.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_java.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_javascript.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_ploy.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_python.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_ruby.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libfrontend_rust.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._liblinker_lib.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libmiddle_ir.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libruntime.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/._libtopo_lib.dylib": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "build-release/libCatch2.3.5.4.dylib": "00e4a128bc9d7be9e96f076751906b5382723e754e12a52f930f62781abbd18f",
+    "build-release/libCatch2.dylib": "00e4a128bc9d7be9e96f076751906b5382723e754e12a52f930f62781abbd18f",
+    "build-release/libCatch2Main.3.5.4.dylib": "8752315ee45dc9281eccae74ebee02301baf3ff907f7d5fcdf2d6655722cfcd6",
+    "build-release/libCatch2Main.dylib": "8752315ee45dc9281eccae74ebee02301baf3ff907f7d5fcdf2d6655722cfcd6",
+    "build-release/libbackend_arm64.dylib": "f4da02ee4e979f7cdbf6443c5407373cb01ab0825b668e8fb3fb05f48ee39d00",
+    "build-release/libbackend_common.dylib": "542705c1945a273a58e8c06d61974ff7694eedc154081db51db7bc17e0c6621e",
+    "build-release/libbackend_wasm.dylib": "117b69bfc9565c09a64b5e8a948820de95136619addab7de6be4720d49e15185",
+    "build-release/libbackend_x86_64.dylib": "96b93dd4a4c815452527267f440e08f1ec16c03256435997ed6f86d6e78fb1c4",
+    "build-release/libfmt.11.0.2.dylib": "1ffc01a81e81b07a3c17f0857ab355d42286883d4459390a29276e0983ac65ee",
+    "build-release/libfmt.11.2.0.dylib": "df115a9575f3cea19b30e1528ae02b0bf6484dd64ea1c66c03cdeb803dba5a03",
+    "build-release/libfmt.11.dylib": "df115a9575f3cea19b30e1528ae02b0bf6484dd64ea1c66c03cdeb803dba5a03",
+    "build-release/libfmt.dylib": "df115a9575f3cea19b30e1528ae02b0bf6484dd64ea1c66c03cdeb803dba5a03",
+    "build-release/libfrontend_common.dylib": "7a63c767c124fdbd898323234476539ac38c1b8392f41a4a522d03489b4ba1db",
+    "build-release/libfrontend_cpp.dylib": "143944c61f55ffb1262fc3becdc93da96a537fdaea73adb84697de974747d631",
+    "build-release/libfrontend_dotnet.dylib": "9c536cbfb8b84bfa7f9093fd004597525d340ba78ebcb4416250abd8e9164869",
+    "build-release/libfrontend_go.dylib": "ec4a39a269f7d344c07c917d7a0cc8848ab16082db2b296303d9d55a6bc52418",
+    "build-release/libfrontend_java.dylib": "c1b5132de029398402b3d2c25e5bf678beded19bc579b173ca87752f8c3bbb69",
+    "build-release/libfrontend_javascript.dylib": "6dc3a9339c8dc9cdfe790c127500cb8264ab5cf0d56fa7101911b7e3400e4649",
+    "build-release/libfrontend_ploy.dylib": "2e721a5a0b2e668f53372a6fcf06906b5c6834b3112230c4b1f31d9dd8cca889",
+    "build-release/libfrontend_python.dylib": "e37c43bae3a014e4de6650e9f896459dc9df6798e05e7fafd9a08e869d8361d2",
+    "build-release/libfrontend_ruby.dylib": "036d9525b834715abf5972ed0a409a88a29022c1c87494b193e0bd0959d92c00",
+    "build-release/libfrontend_rust.dylib": "cc66aa2caec2d5f0db13794bbd128e295179e41d80b53adeb9b7b67f77d2c929",
+    "build-release/liblinker_lib.dylib": "57b7dd38a20f1686ce6afdecfe56146be9a4b7c82cf3c3aec7e238017db1074c",
+    "build-release/libmiddle_ir.dylib": "b62be26227e39d0d9823414d3c5767138faf7afadefa26e6e098afdb307c3b81",
+    "build-release/libpolyglot_common.dylib": "2fe4c8ec45a631496061d4bc61290fff6028268640da2694cd0cefc346a9352b",
+    "build-release/libruntime.dylib": "a3e9742bf958def60745f132b059601eaca993d2b42760547fb2c9f43151ad81",
+    "build-release/libtopo_lib.dylib": "b3b17138ba448c5a9f06ea99a6932cec4ac0f59560aca1e1194eb2862c9ffcca",
+    "build-release/polyc": "c6093f9977724821b2b717cf44216c8dc784be559def19a528ff0d627f162d4e",
+    "build-release/polyld": "7acbc09a4b29bc69239f18258f0f4c2afe034987670c036b9cb0c378316ec631"
+  },
+  "toolchain_unchanged": true,
+  "measurement_script_sha256": {
+    "scripts/benchmark_mixed_native.py": "31acbbf8afb2e1c8e042e12fe3810a14590a93244a469f1b66c12ce19f269cf3",
+    "tests/native_programs/mixed_support.py": "8fb513cebba02b3fbc62f5a94706bbd981fd9fb8f0a3a8145373c534d337063e"
+  },
+  "application_source_sha256": {
+    "._order_risk.poly": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "cpp/._pricing_engine.cpp": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "cpp/pricing_engine.cpp": "0134e731716bba53b71d71642c1fee4846ad37142c4d275b12b24316d4665d21",
+    "data/._orders.csv": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "data/orders.csv": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+    "go/._logistics_engine.go": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "go/logistics_engine.go": "6b52dfe7cb1c08223011382298d629c5151213c1b15fa6ff13c880f3af64057f",
+    "order_risk.poly": "2b153f3d925334d8a9a6b6dc54bf81b2e39a2a677823ad83464ee25476f09bd2",
+    "packages/fraud_policy/._poly.package.toml": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/fraud_policy/poly.package.toml": "9c53821d9c9054446d5ddafb9e30a651bf7f45e31705625a8c1ef1c2843b0b67",
+    "packages/fraud_policy/src/._fraud_policy.py": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/fraud_policy/src/fraud_policy.py": "43337a611f4b530c4807b72c7f837a661895bd8e81f22850e25e401fc9b8bea5",
+    "packages/fulfillment_policy/._poly.package.toml": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/fulfillment_policy/poly.package.toml": "3eccd731bf6aa89f76e8d76614b9ac3026c87f4d5f57c98a5f627c9834efd6c7",
+    "packages/fulfillment_policy/src/._fulfillment_policy.rs": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/fulfillment_policy/src/fulfillment_policy.rs": "6ad327517d57bfa1a9c66fa689870e2d93aaf41a5bcb5ba3360a318a800922d5",
+    "packages/logistics_policy/._poly.package.toml": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/logistics_policy/poly.package.toml": "a65663d5a2f5da790194b308bfdc41873866e5bbef94207b4e1d88b82bc35714",
+    "packages/logistics_policy/src/._logistics_policy.go": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/logistics_policy/src/logistics_policy.go": "2c0c9ec48ee3587e44e26e2607dfbf84f128f30957f32308de7d4cbae49b746e",
+    "packages/order_policy/._poly.package.toml": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/order_policy/include/order_policy/._pricing_session.hpp": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "packages/order_policy/include/order_policy/pricing_session.hpp": "c61d7a7bbc1ff5a39e1f3d2ccbc4926449d9235d475ef1b29aadb7ee17129874",
+    "packages/order_policy/poly.package.toml": "005f81ecc3a616d481be42539d0f99644d0768e785deb5b790750dbfe7310e0e",
+    "python/._fraud_engine.py": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "python/fraud_engine.py": "f065d9820ca97a38ace432588e8acc552f492836569ba6dcaf13ba853db1d18d",
+    "rust/._fulfillment_engine.rs": "3ecb27e46c5f6eb3622b0240729d130e093f2eb7dcfa773ff6e7c47bc17e707a",
+    "rust/fulfillment_engine.rs": "818259eed5d7b913bbbf656ac4f1f81a1e03ca0253e0e07494905564a98c386a"
+  },
+  "runtime_inputs": [
+    {
+      "row_count": 8,
+      "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+      "output_bytes": 137
+    },
+    {
+      "row_count": 800,
+      "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+      "output_bytes": 11534
+    },
+    {
+      "row_count": 8000,
+      "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+      "output_bytes": 115040
+    }
+  ],
+  "official_versions": {
+    "cpp": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+    "python": "Python 3.9.6",
+    "rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "go": "go version go1.27.1 darwin/arm64",
+    "java": "javac 21.0.8",
+    "dotnet": "8.0.412 [/usr/local/share/dotnet/sdk]",
+    "javascript": "v24.19.0",
+    "ruby": "ruby 2.6.10p210 (2022-04-12 revision 67958) [universal.arm64e-darwin26]"
+  },
+  "mixed_reference_versions": {
+    "cpp": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+    "python": "Python 3.9.6",
+    "rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "go": "go version go1.27.1 darwin/arm64"
+  },
+  "differential_kernel_sha256": {
+    "poly/signed_values": "92f571c7ff6234bda90f452b91f5a681e5347523d324305b51a73f02861240cd",
+    "poly/wide_values": "20599f9a5dc4bd6b622f9d927ba870077d8361ee2e6a43006343211a89fc7ae8",
+    "poly/nested_calls": "91b47427bac8fd37ae56e4a9860f3edcd8364e7668766659c2d8f81ed88305c5",
+    "poly/nested_loops": "1c7b2714cfbe09ed9ddf8a8e9eaec72040a52ad55b96c3484afb1c0ec21b1c5d",
+    "poly/recursion": "aa75b5fd4eafe20d405cf55f488e82ddd121047a5f09853d9bc83caba3f74392",
+    "poly/parameter_update": "301a102d2c23fe2ff3c1d50b92bf4b9199b680af61f6201d73e17c0cda118607",
+    "poly/short_circuit": "9cbeee1e67901eeb65b094ca0a1cc7cbf06d78daaefb92584d9fa779cab9a415",
+    "poly/float_values": "c81df21b1a4c76ff1b551672929dcdf4024b29c00c3db9f39c9f8f6962a247f1",
+    "cpp/signed_values": "c526844b1c1357392ee9562a30eea1bc1a707fc47ac4ab623f8f78274e7d3c8b",
+    "cpp/wide_values": "f6a7f69e7a6ca6c4d9a31685b15e77031aa1efd7bbfc734f2f6738e0ca82ad55",
+    "cpp/nested_calls": "dd9fa16c76259f525c8eb2421c5c5bd865c1e0d9fc2233aa7ebf53489724473a",
+    "cpp/nested_loops": "b546e919b6c1b4acca512c41827e687b6cd5dfe3342c42381e5562e1aa600800",
+    "cpp/recursion": "a9fc66222b626edb1bdb4002f2fff444574bf3a4bdba4fa81b7f4dca01072fbb",
+    "cpp/parameter_update": "d181540c4fcaab7a2d58f03f4ffd6767aba387af9267ded6ce342aa23f5b44d4",
+    "cpp/short_circuit": "e9b8a1bebd7acf26f3da07a4054f6553858ef40d06ab6b0e0452e11b9f1a01bd",
+    "cpp/float_values": "880b6e2c694fbeef7c43adc2403bc349abce670e0daf4070bcae9b7112004d8a",
+    "python/signed_values": "8e95230efefba2c626a60309b6187d4232942d4c229c0ed48b40b7d666db3175",
+    "python/wide_values": "8a57849f0ccaa214fc888f4ba8f82c63c4dbf732bb6020ef512293fe2c34b7a6",
+    "python/nested_calls": "fa76b1ef894ffaf9f855548c234a8af5bfd7d2f8220c5bfa56769b9fcf493994",
+    "python/nested_loops": "5fa0c5a256caacf548eec8261b312e0e686508504b35f14e10911c29b8150048",
+    "python/recursion": "afb2dcd44ed3756e5b16c211bd29999826e6cdc681abc8d82d0b9bf2f6f54f2f",
+    "python/parameter_update": "5422ea77b6c3794d8b5ab789102df4b1e1e161abc7d9d455728d52e1e285363b",
+    "python/short_circuit": "30af159c132503bd05345557d7fe7a7fd621f204d5d3cbebffed2274a45a15c4",
+    "python/float_values": "99f7c11609840c12899daa457e19f17bcbc44ecb75a930865e86e8d772a1591b",
+    "rust/signed_values": "100671e7dd6932799be3f5c2ced2365c6783b4ceb1ad0abdbd336ab9742bfef3",
+    "rust/wide_values": "091ce1795bf1f6a692f9268c5a916dc178bd6b320d27272a0471862bbee2f680",
+    "rust/nested_calls": "eee20eca3e71a8ad2dc521e34f5e4991440cbe96285cd238aaa25d39e8b430ef",
+    "rust/nested_loops": "b2d200e177e14638dea5c0f726ace78d97bcf413cfeb527444c987a98b12d8bc",
+    "rust/recursion": "d6acac6e3edabe68bf437d9244a9ae542fbe11ac16fd3d57764b52572dd54c54",
+    "rust/parameter_update": "10db1ce256a0af8763231b43b9d7560a5fc9ce75b2b720a7ee2b770ef4cc87ea",
+    "rust/short_circuit": "89b1071feea7ceb7e344a5597efa0cf77b384d3e92f5fa91bd7e3382f621b4f2",
+    "rust/float_values": "e1781adc1ed10bd21f715da1ee81ce33f779b29a09ccbb156c3b0da981268af5",
+    "go/signed_values": "71989656694dece999866aa360104967b63b499f68ba5bb99b5dddfc1604a5d0",
+    "go/wide_values": "460888821967b64cf5e1e13caa4b9e4206177854f0d1e597008383b430d366da",
+    "go/nested_calls": "8b5c38fa079b1fa238442de37b14131294c9e241656a47b46d8aa7bdf6051262",
+    "go/nested_loops": "ccb0c7e93e858fd7db50c4d27e91ff49e625d687a86b22c02d889f94144c48e2",
+    "go/recursion": "ce25b45498e8c47995bfe998a49751eff0b80c131ba88099fb30fcf4e8e3a5c4",
+    "go/parameter_update": "15e20fe427040df048dffba563adc7b4e7326b1b8b2325cd0fde168305aeeafb",
+    "go/short_circuit": "1420694a72ab1e630726955f45d1edc4acfb5d6300bc8830ab4d46ffb5a92988",
+    "go/float_values": "52740c634410b97bb0b5ac6a015dbf38d6a8c3b5fde9acaec7297a1c97b18e79",
+    "java/signed_values": "aa47b2c4836215a8cb7c175378a1304822f531a5ca253d98df93fc0808fac643",
+    "java/wide_values": "5a52d6d06d312d246ac0f282abe76cf34d08caddf41c8d945cdbffc4ad43adae",
+    "java/nested_calls": "52ea7c7ad62890dbd6a70dc6f072413655d75899a473d763d20954d0dd430d2f",
+    "java/nested_loops": "1841166f80e9f343d66218b174da2eaab28e2ac4182735e0193b356112e99a13",
+    "java/recursion": "83b130482becefcc207b995013ac8a53185c5f345e70f494e68ab0071216ffa5",
+    "java/parameter_update": "ecfdcb5a61e45b8a6d72397c58fd72cf72f4f51ee5a4b1e91210d6738e29382b",
+    "java/short_circuit": "a55ce8dd5976c5481159421ab7f394f5e6fd5a6a8810f9965cdba7e521bf93a0",
+    "java/float_values": "25ecacf561b7376eeb19bb995b4489cead3128f08efbb1c13b3483e1a5a67d00",
+    "dotnet/signed_values": "aa47b2c4836215a8cb7c175378a1304822f531a5ca253d98df93fc0808fac643",
+    "dotnet/wide_values": "5a52d6d06d312d246ac0f282abe76cf34d08caddf41c8d945cdbffc4ad43adae",
+    "dotnet/nested_calls": "52ea7c7ad62890dbd6a70dc6f072413655d75899a473d763d20954d0dd430d2f",
+    "dotnet/nested_loops": "1841166f80e9f343d66218b174da2eaab28e2ac4182735e0193b356112e99a13",
+    "dotnet/recursion": "83b130482becefcc207b995013ac8a53185c5f345e70f494e68ab0071216ffa5",
+    "dotnet/parameter_update": "ecfdcb5a61e45b8a6d72397c58fd72cf72f4f51ee5a4b1e91210d6738e29382b",
+    "dotnet/short_circuit": "a55ce8dd5976c5481159421ab7f394f5e6fd5a6a8810f9965cdba7e521bf93a0",
+    "dotnet/float_values": "25ecacf561b7376eeb19bb995b4489cead3128f08efbb1c13b3483e1a5a67d00",
+    "javascript/signed_values": "542d8a2fbb70149f69fb47ef77f8d2953596770c41bca3b0145a151f381c66c2",
+    "javascript/wide_values": "d929932b097ff83abad39a0e6e9aca816418fcc111f5d7be757b4b963da99fad",
+    "javascript/nested_calls": "ecf65adc5eacd8c370bd60f6db8eced588b5414bdb9714857a0b9ce90ff0618f",
+    "javascript/nested_loops": "3767d0e79c7aef43154f0b376fc088c0f33f8b6991b4f2b67cc3d9b9d11e8fb6",
+    "javascript/recursion": "f342be297605e01531adce285d1ccbf9060421bb72415968cb202a86cb34eb82",
+    "javascript/parameter_update": "ace5ff8c5b933e756d16016dd1800869e888adcda23ae5c4b661c8f7c04656df",
+    "javascript/short_circuit": "8ea30d6899499948868452ad03747fb575ea6fb6ba3d322f1c075df7607ceaf3",
+    "javascript/float_values": "981375a715cdb901403d6f7754504ef4799b1bb3f3046e6f2d6e7d9b2892c000",
+    "ruby/signed_values": "45f249949a24d017a8fbe71ee799df16d8e11815d53796c66f116161bcf2c09f",
+    "ruby/wide_values": "1e49d413024e00ed81356bf3f8801422f34d78fea524d04cbfbd8f8266f7a0e8",
+    "ruby/nested_calls": "dcbaf18a9337983dd529fb6fe267ea794717c4fd6063354846d9fdfb363890b1",
+    "ruby/nested_loops": "3e97f4db75f7b5b3dc380f2a842b8bcf59128b91b1b709df28e525b4204e6de9",
+    "ruby/recursion": "3efce2a29bab12878cec22dd40ac6027980e3973e6eb1268da0b75ccd173205a",
+    "ruby/parameter_update": "3c064c25359e6dd9b98eff17488c8eaffb8f70a9f054f50768d5e70c3a466d4b",
+    "ruby/short_circuit": "84e52fd7d71f406be0196882cd270419fed4fa0f971136130556cae1216e88c8",
+    "ruby/float_values": "7c63ad401a661dc5d11eaeb244d9a01e09ecbded2640e3342a57614b08cd8c46"
+  },
+  "acceptance": {
+    "mixed_configurations_passed": 8,
+    "mixed_scenarios_passed": 80,
+    "mixed_official_success_scenarios_passed": 4,
+    "native_differential_passed": 576,
+    "official_differential_comparisons_passed": 512,
+    "poly_oracle_only_configurations": 64,
+    "numeric_abi_configurations_passed": 8,
+    "qt_gate_cases_passed": 3,
+    "qt_runtime_samples": 128,
+    "qt_mapped_call_sites": 16
+  },
+  "configurations": [
+    {
+      "opt": 0,
+      "allocator": "linear",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 119.108,
+        "median": 146.349333,
+        "mean": 143.54591071428572,
+        "max": 158.696167,
+        "p95": 158.696167,
+        "stddev": 14.200233616373083
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 123.0525,
+        "median": 124.926958,
+        "mean": 124.91104742857142,
+        "max": 128.34275,
+        "p95": 128.34275,
+        "stddev": 1.794803768549071
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11386880,
+        "median": 11436032,
+        "mean": 11429010.285714285,
+        "max": 11452416,
+        "p95": 11452416,
+        "stddev": 24770.279703132714
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 7.522166,
+            "median": 8.4935,
+            "mean": 10.620476,
+            "max": 23.69875,
+            "p95": 23.69875,
+            "stddev": 5.796693140724431
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1671168,
+            "median": 1671168,
+            "mean": 1671168,
+            "max": 1671168,
+            "p95": 1671168,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 19.067584,
+            "median": 21.488292,
+            "mean": 23.449381,
+            "max": 28.845958,
+            "p95": 28.845958,
+            "stddev": 3.997926390135516
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1753088,
+            "median": 1753088,
+            "mean": 1753088,
+            "max": 1753088,
+            "p95": 1753088,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 124.878916,
+            "median": 136.198917,
+            "mean": 136.63639871428572,
+            "max": 155.672,
+            "p95": 155.672,
+            "stddev": 9.644326641228503
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 2670592,
+            "median": 2670592,
+            "mean": 2670592,
+            "max": 2670592,
+            "p95": 2670592,
+            "stddev": 0.0
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 16.480041,
+            "median": 19.581875,
+            "mean": 20.558666714285714,
+            "max": 26.153625,
+            "p95": 26.153625,
+            "stddev": 3.864981371062165
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 16.4895,
+            "median": 24.4655,
+            "mean": 24.817786,
+            "max": 31.992959,
+            "p95": 31.992959,
+            "stddev": 6.035215621100708
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 14.399374,
+            "median": 16.204541,
+            "mean": 16.100988,
+            "max": 18.380541,
+            "p95": 18.380541,
+            "stddev": 1.409543416130912
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 17.129542,
+            "median": 21.712333,
+            "mean": 21.856458285714286,
+            "max": 24.9685,
+            "p95": 24.9685,
+            "stddev": 2.6981726323758273
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 16.297459,
+            "median": 19.995292,
+            "mean": 21.805101285714287,
+            "max": 31.613792,
+            "p95": 31.613792,
+            "stddev": 5.021248537369357
+          }
+        }
+      ]
+    },
+    {
+      "opt": 0,
+      "allocator": "graph",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 118.353875,
+        "median": 147.407291,
+        "mean": 142.95473785714285,
+        "max": 158.506625,
+        "p95": 158.506625,
+        "stddev": 15.372438807087132
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 118.045583,
+        "median": 124.547333,
+        "mean": 123.664744,
+        "max": 125.531209,
+        "p95": 125.531209,
+        "stddev": 2.5757727257711114
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11272192,
+        "median": 11337728,
+        "mean": 11342409.142857144,
+        "max": 11452416,
+        "p95": 11452416,
+        "stddev": 58856.568422532
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 7.55675,
+            "median": 8.884334,
+            "mean": 9.245107285714287,
+            "max": 11.309125,
+            "p95": 11.309125,
+            "stddev": 1.2754326496756192
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1671168,
+            "median": 1671168,
+            "mean": 1671168,
+            "max": 1671168,
+            "p95": 1671168,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 21.442791,
+            "median": 23.11275,
+            "mean": 25.064083285714286,
+            "max": 30.166917,
+            "p95": 30.166917,
+            "stddev": 3.7286714924558457
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1851392,
+            "median": 1851392,
+            "mean": 1851392,
+            "max": 1851392,
+            "p95": 1851392,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 117.508125,
+            "median": 131.305917,
+            "mean": 131.74383342857143,
+            "max": 147.887125,
+            "p95": 147.887125,
+            "stddev": 11.939399935351183
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 3571712,
+            "median": 3571712,
+            "mean": 3571712,
+            "max": 3571712,
+            "p95": 3571712,
+            "stddev": 0.0
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 16.163459,
+            "median": 18.968375,
+            "mean": 20.826428857142858,
+            "max": 27.001709,
+            "p95": 27.001709,
+            "stddev": 3.8655866059643706
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 18.1725,
+            "median": 22.375625,
+            "mean": 23.080214142857145,
+            "max": 31.982291,
+            "p95": 31.982291,
+            "stddev": 4.311654492665796
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 14.642377,
+            "median": 16.103584,
+            "mean": 16.243071714285716,
+            "max": 17.737917,
+            "p95": 17.737917,
+            "stddev": 1.0578822236508993
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 17.812375,
+            "median": 22.109083,
+            "mean": 21.87656557142857,
+            "max": 26.861375,
+            "p95": 26.861375,
+            "stddev": 3.205849378248862
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 15.411875,
+            "median": 24.347791,
+            "mean": 26.19336285714286,
+            "max": 48.163958,
+            "p95": 48.163958,
+            "stddev": 10.483762827357447
+          }
+        }
+      ]
+    },
+    {
+      "opt": 1,
+      "allocator": "linear",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 146.126708,
+        "median": 157.331875,
+        "mean": 155.31476785714287,
+        "max": 160.90275,
+        "p95": 160.90275,
+        "stddev": 6.026082875013289
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 121.756292,
+        "median": 124.154292,
+        "mean": 127.14576171428571,
+        "max": 144.876291,
+        "p95": 144.876291,
+        "stddev": 8.03339502258082
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11288576,
+        "median": 11452416,
+        "mean": 11480502.857142856,
+        "max": 11698176,
+        "p95": 11698176,
+        "stddev": 142114.64528263625
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 6.06525,
+            "median": 8.300417,
+            "mean": 8.838476285714286,
+            "max": 12.1825,
+            "p95": 12.1825,
+            "stddev": 1.9141695920892792
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1687552,
+            "median": 1687552,
+            "mean": 1687552,
+            "max": 1687552,
+            "p95": 1687552,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 19.109208,
+            "median": 22.103375,
+            "mean": 24.613636857142858,
+            "max": 33.502125,
+            "p95": 33.502125,
+            "stddev": 5.221676883255334
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1769472,
+            "median": 1769472,
+            "mean": 1769472,
+            "max": 1769472,
+            "p95": 1769472,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 126.440542,
+            "median": 138.933833,
+            "mean": 142.38744657142857,
+            "max": 168.83575,
+            "p95": 168.83575,
+            "stddev": 14.21642661598367
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 2670592,
+            "median": 2686976,
+            "mean": 2684635.4285714286,
+            "max": 2686976,
+            "p95": 2686976,
+            "stddev": 6192.569925783178
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 16.577458,
+            "median": 20.125708,
+            "mean": 21.07459514285714,
+            "max": 26.8695,
+            "p95": 26.8695,
+            "stddev": 3.519474906133983
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 19.542208,
+            "median": 27.966916,
+            "mean": 27.978773571428572,
+            "max": 32.488125,
+            "p95": 32.488125,
+            "stddev": 4.180724735499092
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 20.108375,
+            "median": 20.680043,
+            "mean": 21.545886714285714,
+            "max": 24.934999,
+            "p95": 24.934999,
+            "stddev": 1.73088209108234
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 16.858667,
+            "median": 22.883208,
+            "mean": 22.89472614285714,
+            "max": 29.3855,
+            "p95": 29.3855,
+            "stddev": 4.261406432533608
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 20.563,
+            "median": 23.888416,
+            "mean": 24.681988,
+            "max": 28.51575,
+            "p95": 28.51575,
+            "stddev": 3.176518942428226
+          }
+        }
+      ]
+    },
+    {
+      "opt": 1,
+      "allocator": "graph",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 143.120584,
+        "median": 149.628875,
+        "mean": 153.99358942857143,
+        "max": 172.59975,
+        "p95": 172.59975,
+        "stddev": 10.662653642356451
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 121.395458,
+        "median": 124.299,
+        "mean": 123.831494,
+        "max": 125.792334,
+        "p95": 125.792334,
+        "stddev": 1.4336734642952456
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11190272,
+        "median": 11468800,
+        "mean": 11431350.857142856,
+        "max": 11550720,
+        "p95": 11550720,
+        "stddev": 117277.96664254341
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 7.318792,
+            "median": 8.2325,
+            "mean": 8.610547714285715,
+            "max": 12.463542,
+            "p95": 12.463542,
+            "stddev": 1.7840787780097898
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1687552,
+            "median": 1687552,
+            "mean": 1687552,
+            "max": 1687552,
+            "p95": 1687552,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 20.261375,
+            "median": 22.710708,
+            "mean": 23.398130857142856,
+            "max": 26.857583,
+            "p95": 26.857583,
+            "stddev": 2.6204907069175314
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1867776,
+            "median": 1867776,
+            "mean": 1867776,
+            "max": 1867776,
+            "p95": 1867776,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 130.03925,
+            "median": 142.364791,
+            "mean": 143.76277971428573,
+            "max": 166.573,
+            "p95": 166.573,
+            "stddev": 11.929230949420278
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 3588096,
+            "median": 3588096,
+            "mean": 3588096,
+            "max": 3588096,
+            "p95": 3588096,
+            "stddev": 0.0
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 18.445084,
+            "median": 21.258542,
+            "mean": 20.936404857142858,
+            "max": 24.856417,
+            "p95": 24.856417,
+            "stddev": 2.121029118702478
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 19.945,
+            "median": 25.605417,
+            "mean": 25.248392857142857,
+            "max": 30.949083,
+            "p95": 30.949083,
+            "stddev": 4.347002771963054
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 20.306251,
+            "median": 22.816209,
+            "mean": 23.749845714285716,
+            "max": 33.73925,
+            "p95": 33.73925,
+            "stddev": 4.763656990098387
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 18.474084,
+            "median": 20.698,
+            "mean": 22.254012,
+            "max": 28.727709,
+            "p95": 28.727709,
+            "stddev": 3.6625372961966316
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 18.639625,
+            "median": 24.40575,
+            "mean": 23.090649,
+            "max": 27.121917,
+            "p95": 27.121917,
+            "stddev": 3.280210706019306
+          }
+        }
+      ]
+    },
+    {
+      "opt": 2,
+      "allocator": "linear",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 132.503375,
+        "median": 146.005292,
+        "mean": 147.742524,
+        "max": 165.781584,
+        "p95": 165.781584,
+        "stddev": 11.57913421972842
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 122.952666,
+        "median": 125.0065,
+        "mean": 126.61767814285714,
+        "max": 137.815125,
+        "p95": 137.815125,
+        "stddev": 5.089201529443147
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11386880,
+        "median": 11485184,
+        "mean": 11499227.42857143,
+        "max": 11698176,
+        "p95": 11698176,
+        "stddev": 100744.31380952665
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 7.116125,
+            "median": 8.453291,
+            "mean": 11.809892714285715,
+            "max": 27.144625,
+            "p95": 27.144625,
+            "stddev": 7.233723753301678
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1687552,
+            "median": 1687552,
+            "mean": 1687552,
+            "max": 1687552,
+            "p95": 1687552,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 17.9775,
+            "median": 24.966417,
+            "mean": 25.733744142857145,
+            "max": 39.670667,
+            "p95": 39.670667,
+            "stddev": 7.217973447856572
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1769472,
+            "median": 1769472,
+            "mean": 1769472,
+            "max": 1769472,
+            "p95": 1769472,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 126.957209,
+            "median": 138.402834,
+            "mean": 139.63450628571428,
+            "max": 162.218209,
+            "p95": 162.218209,
+            "stddev": 10.929426486208806
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 2686976,
+            "median": 2686976,
+            "mean": 2686976,
+            "max": 2686976,
+            "p95": 2686976,
+            "stddev": 0.0
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 17.074542,
+            "median": 17.755375,
+            "mean": 19.711149,
+            "max": 25.983,
+            "p95": 25.983,
+            "stddev": 3.3723586197837863
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 23.541875,
+            "median": 26.838333,
+            "mean": 27.109434714285715,
+            "max": 30.292667,
+            "p95": 30.292667,
+            "stddev": 2.543803786129394
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 19.845375,
+            "median": 21.05725,
+            "mean": 21.664446428571427,
+            "max": 24.560457,
+            "p95": 24.560457,
+            "stddev": 1.6925447508177203
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 15.869333,
+            "median": 19.128875,
+            "mean": 19.81321414285714,
+            "max": 27.426083,
+            "p95": 27.426083,
+            "stddev": 4.036415152013332
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 14.736083,
+            "median": 20.486042,
+            "mean": 20.947976142857144,
+            "max": 28.694458,
+            "p95": 28.694458,
+            "stddev": 4.6059667938213735
+          }
+        }
+      ]
+    },
+    {
+      "opt": 2,
+      "allocator": "graph",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 135.325875,
+        "median": 154.834375,
+        "mean": 154.822262,
+        "max": 185.763,
+        "p95": 185.763,
+        "stddev": 16.34774727370274
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 123.029667,
+        "median": 124.437542,
+        "mean": 126.28255957142858,
+        "max": 139.328041,
+        "p95": 139.328041,
+        "stddev": 5.8187574692671005
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11223040,
+        "median": 11485184,
+        "mean": 11443053.714285715,
+        "max": 11567104,
+        "p95": 11567104,
+        "stddev": 119223.72468279162
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 7.032542,
+            "median": 7.836708,
+            "mean": 7.951785571428571,
+            "max": 9.107458,
+            "p95": 9.107458,
+            "stddev": 0.6549352901495576
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1687552,
+            "median": 1687552,
+            "mean": 1687552,
+            "max": 1687552,
+            "p95": 1687552,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 19.334125,
+            "median": 23.538583,
+            "mean": 24.180565428571427,
+            "max": 29.564208,
+            "p95": 29.564208,
+            "stddev": 3.682455038136508
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1867776,
+            "median": 1867776,
+            "mean": 1867776,
+            "max": 1867776,
+            "p95": 1867776,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 125.899375,
+            "median": 141.905375,
+            "mean": 151.81764885714284,
+            "max": 209.1265,
+            "p95": 209.1265,
+            "stddev": 28.028843108091976
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 3571712,
+            "median": 3588096,
+            "mean": 3585755.4285714286,
+            "max": 3588096,
+            "p95": 3588096,
+            "stddev": 6192.569925783178
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 17.575125,
+            "median": 21.849916,
+            "mean": 22.395488142857143,
+            "max": 27.773084,
+            "p95": 27.773084,
+            "stddev": 3.4065147684699406
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 20.845291,
+            "median": 28.092,
+            "mean": 27.11485114285714,
+            "max": 33.015584,
+            "p95": 33.015584,
+            "stddev": 3.972042417553066
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 20.525499,
+            "median": 22.158584,
+            "mean": 24.583059857142857,
+            "max": 31.333042,
+            "p95": 31.333042,
+            "stddev": 4.30586922346524
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 16.916709,
+            "median": 23.004333,
+            "mean": 22.894839428571427,
+            "max": 29.474209,
+            "p95": 29.474209,
+            "stddev": 4.518524411822619
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 17.229625,
+            "median": 20.696834,
+            "mean": 21.100154857142858,
+            "max": 26.844584,
+            "p95": 26.844584,
+            "stddev": 3.627539311366428
+          }
+        }
+      ]
+    },
+    {
+      "opt": 3,
+      "allocator": "linear",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 137.548584,
+        "median": 153.694125,
+        "mean": 152.022375,
+        "max": 174.7145,
+        "p95": 174.7145,
+        "stddev": 14.156384095146759
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 122.653291,
+        "median": 125.670834,
+        "mean": 125.02209528571429,
+        "max": 127.291583,
+        "p95": 127.291583,
+        "stddev": 1.718922882749034
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11190272,
+        "median": 11485184,
+        "mean": 11405604.57142857,
+        "max": 11632640,
+        "p95": 11632640,
+        "stddev": 178835.58702418744
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 6.240958,
+            "median": 8.864834,
+            "mean": 8.69008942857143,
+            "max": 11.193458,
+            "p95": 11.193458,
+            "stddev": 1.504932105940869
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1687552,
+            "median": 1687552,
+            "mean": 1687552,
+            "max": 1687552,
+            "p95": 1687552,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 19.291875,
+            "median": 22.645666,
+            "mean": 23.114612857142856,
+            "max": 28.336375,
+            "p95": 28.336375,
+            "stddev": 3.4124039542221762
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1753088,
+            "median": 1769472,
+            "mean": 1767131.4285714286,
+            "max": 1769472,
+            "p95": 1769472,
+            "stddev": 6192.569925783178
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 127.102166,
+            "median": 143.464542,
+            "mean": 243.31336885714285,
+            "max": 860.336541,
+            "p95": 860.336541,
+            "stddev": 272.1910331473302
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 2686976,
+            "median": 2686976,
+            "mean": 2686976,
+            "max": 2686976,
+            "p95": 2686976,
+            "stddev": 0.0
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 17.574708,
+            "median": 20.72775,
+            "mean": 20.707375,
+            "max": 24.650709,
+            "p95": 24.650709,
+            "stddev": 2.096731086514831
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 17.862792,
+            "median": 23.445583,
+            "mean": 25.12596457142857,
+            "max": 31.909084,
+            "p95": 31.909084,
+            "stddev": 4.874009827333475
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 21.377,
+            "median": 22.596499,
+            "mean": 23.420839142857144,
+            "max": 28.508334,
+            "p95": 28.508334,
+            "stddev": 2.531893102583087
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 16.664416,
+            "median": 22.5025,
+            "mean": 22.555565,
+            "max": 30.130291,
+            "p95": 30.130291,
+            "stddev": 4.366619303444828
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 19.486042,
+            "median": 21.303041,
+            "mean": 22.846166571428572,
+            "max": 32.440542,
+            "p95": 32.440542,
+            "stddev": 4.474690604681545
+          }
+        }
+      ]
+    },
+    {
+      "opt": 3,
+      "allocator": "graph",
+      "status": "passed",
+      "compile_ms": {
+        "n": 7,
+        "min": 133.327542,
+        "median": 162.278334,
+        "mean": 160.61491657142858,
+        "max": 175.839666,
+        "p95": 175.839666,
+        "stddev": 15.192865114533454
+      },
+      "first_launch_ms": {
+        "n": 7,
+        "min": 120.629375,
+        "median": 124.644375,
+        "mean": 124.720887,
+        "max": 128.917167,
+        "p95": 128.917167,
+        "stddev": 2.8856489195173536
+      },
+      "compile_peak_rss_bytes": {
+        "n": 7,
+        "min": 11354112,
+        "median": 11501568,
+        "mean": 11485184,
+        "max": 11550720,
+        "p95": 11550720,
+        "stddev": 72039.93440678116
+      },
+      "executable_bytes": 59856,
+      "runtime_by_rows": [
+        {
+          "row_count": 8,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 7.715959,
+            "median": 8.098042,
+            "mean": 8.317434714285714,
+            "max": 9.959875,
+            "p95": 9.959875,
+            "stddev": 0.7679485851793106
+          },
+          "output_bytes": 137,
+          "input_sha256": "f9f6cd2bff488daa17a48f1c6eca15cc7b323bd0e47b0fb7a4f1c79e4c1aedb7",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1671168,
+            "median": 1687552,
+            "mean": 1685211.4285714286,
+            "max": 1687552,
+            "p95": 1687552,
+            "stddev": 6192.569925783178
+          }
+        },
+        {
+          "row_count": 800,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 19.336833,
+            "median": 22.832042,
+            "mean": 25.110482285714287,
+            "max": 36.488708,
+            "p95": 36.488708,
+            "stddev": 5.609821800039336
+          },
+          "output_bytes": 11534,
+          "input_sha256": "c6d9be576e1d8064248c4298bae12d43a1cc51845329696f7b19e3b107469c14",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 1867776,
+            "median": 1867776,
+            "mean": 1867776,
+            "max": 1867776,
+            "p95": 1867776,
+            "stddev": 0.0
+          }
+        },
+        {
+          "row_count": 8000,
+          "elapsed_ms": {
+            "n": 7,
+            "min": 135.816083,
+            "median": 147.423833,
+            "mean": 148.09038071428571,
+            "max": 158.2625,
+            "p95": 158.2625,
+            "stddev": 7.66741685424019
+          },
+          "output_bytes": 115040,
+          "input_sha256": "23f0325962dba39886f97e8dc9715c08743576b8784bba3481fe35bcdfdc922c",
+          "peak_rss_bytes": {
+            "n": 7,
+            "min": 3588096,
+            "median": 3588096,
+            "mean": 3588096,
+            "max": 3588096,
+            "p95": 3588096,
+            "stddev": 0.0
+          }
+        }
+      ],
+      "module_ms": [
+        {
+          "language": "cpp",
+          "source": "cpp/pricing_engine.cpp",
+          "distribution": {
+            "n": 7,
+            "min": 17.004,
+            "median": 20.5235,
+            "mean": 21.111642714285715,
+            "max": 25.9015,
+            "p95": 25.9015,
+            "stddev": 2.970673739353959
+          }
+        },
+        {
+          "language": "go",
+          "source": "go/logistics_engine.go",
+          "distribution": {
+            "n": 7,
+            "min": 21.846708,
+            "median": 26.821791,
+            "mean": 27.564059285714286,
+            "max": 35.277375,
+            "p95": 35.277375,
+            "stddev": 5.641430151496151
+          }
+        },
+        {
+          "language": "poly",
+          "source": "order_risk.poly",
+          "distribution": {
+            "n": 7,
+            "min": 21.607124,
+            "median": 22.917417,
+            "mean": 26.183666714285714,
+            "max": 45.987958,
+            "p95": 45.987958,
+            "stddev": 8.798437481587506
+          }
+        },
+        {
+          "language": "python",
+          "source": "python/fraud_engine.py",
+          "distribution": {
+            "n": 7,
+            "min": 17.732125,
+            "median": 20.6105,
+            "mean": 21.591083285714287,
+            "max": 29.60425,
+            "p95": 29.60425,
+            "stddev": 4.058633968705551
+          }
+        },
+        {
+          "language": "rust",
+          "source": "rust/fulfillment_engine.rs",
+          "distribution": {
+            "n": 7,
+            "min": 16.171875,
+            "median": 21.74825,
+            "mean": 21.83507142857143,
+            "max": 29.25525,
+            "p95": 29.25525,
+            "stddev": 4.292601406997621
+          }
+        }
+      ]
+    }
+  ],
+  "evidence": {
+    "benchmark": {
+      "path": "build-release/mixed-native-performance/2026-10-03-full-balanced/results.json",
+      "sha256": "bed3ff78907c29fbfd7854d0e41f730d3f8bdc46ad2383b5b05be89a90352e74"
+    },
+    "mixed_regression": {
+      "path": "build-release/mixed-regression/2026-10-03-frozen/results.json",
+      "sha256": "559ce21b00dff68c36cc5d749036ee76bc5a3167ae2c4091a073e0153a6e9d3f"
+    },
+    "differential": {
+      "path": "build-release/native-differential/2026-10-03-frozen/results.json",
+      "sha256": "e908f10658492b8a75b94cf99359a2dba083d0c926e7ec94293075e29c37b695"
+    },
+    "qt_gate": {
+      "path": "build-release/ui-validation/2026-10-03/gate with spaces/results.json",
+      "sha256": "55cc1905f09e24b7554e333a9772fea052c8b97c44e9b719dec34e4558efeed2"
+    }
+  },
+  "excluded_diagnostic": {
+    "path": "build-release/mixed-native-performance/2026-10-03-full",
+    "status": "diagnostic_only",
+    "reason": "first-launch timing was reused only for 8 rows; larger sizes ran after acceptance; replaced by a complete corrected 64-build experiment"
+  },
+  "remote_ci_status": "not_run",
+  "known_preexisting_audit_findings": [
+    "docs/api/api_reference.md English/Chinese heading parity 102/94",
+    "ignored legacy tests/samples/01_basic_linking/1.json language=ploy"
+  ],
+  "passed": true
+}

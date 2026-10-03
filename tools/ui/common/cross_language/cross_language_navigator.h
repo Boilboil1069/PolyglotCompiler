@@ -138,6 +138,10 @@ struct FunctionDocumentation {
   std::string documentation;
   std::string source_preview;
   SourceLocation location;
+  // ABI types come from the same foreign signature extractor as polyc;
+  // source comments above remain the original author's documentation.
+  std::string compiler_signature;
+  std::string type_resolution_note;
 };
 
 struct ForeignCallTarget {

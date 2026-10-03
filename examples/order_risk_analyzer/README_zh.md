@@ -1,169 +1,134 @@
-# 数据驱动的订单授权与履约引擎
+# 四语言订单应用：原生执行与工程验收
 
-这个示例是 `polyc` 的端到端业务验收项目：一个 `.poly` 入口、一条构建命令、四种本地语言前端、四个带对象模型的 vendored 包、运行时 CSV 输入，以及最终由本地 `polyld` 生成的单一原生可执行文件。
+`order_risk.poly` 是应用入口。一次 `polyc` 调用根据源码导入和项目内包 manifest，编译 C++ 定价、Python 风控、Rust 库存/支付、Go 物流，再由 `polyld` 链接成一个原生可执行文件。运行时读取订单文件，并逐笔输出决策和汇总。
 
-```text
-data/orders.csv
-       |
-       v
-Poly 文件读取、递归流处理、聚合与断言
-       |
-       +--> C++ order_policy：构造、字段状态、成员调用、析构
-       +--> Python fraud_policy：构造、字段状态、成员调用、显式清理
-       +--> Rust fulfillment_policy：结构体构造、&self/&mut self 方法、显式清理
-       +--> Go logistics_policy：结构体构造、指针 receiver 修改、receiver 读取
-       |
-       v
-8 行结果 + 分类统计 + checksum 483 -> 进程退出码 232
-```
+编译应用不依赖 clang、CPython、rustc 或 Go。回归测试另外使用这些官方工具运行同一组外语源码，提供独立比较；这两条路径的结果在报告中分别记录。
 
-用户不需要分别运行 clang/GCC、CPython、rustc 或 Go，也不需要手工调用 `polyld`、添加 `-I`，或先运行包管理器。
+## 构建与运行
 
-## 四种语言的包解析与面向对象路径
-
-`order_risk.poly` 用正式的包依赖语法声明四个项目内 vendored 包：
-
-```poly
-IMPORT cpp PACKAGE order_policy >= 1.0;
-IMPORT python PACKAGE fraud_policy >= 1.0;
-IMPORT rust PACKAGE fulfillment_policy >= 1.0;
-IMPORT go PACKAGE logistics_policy >= 1.0;
-```
-
-Poly 前端解析依赖名与版本约束；随后 `polyc` 定位各包的 `poly.package.toml`，校验 `name`、`language` 和 manifest `version` 是否满足 `>=`/`<=`/`==`/`>`/`<`/`~=` 约束，并拒绝绝对路径、`..` 以及经符号链接越出项目 `packages/` 根目录的路径。`--no-package-index` 下缺包、重复匹配、错语言、源码包缺少 `source` 或版本不兼容都会硬失败；C++ 允许由 `include_dir` 声明 header-only 包。该 include 根会交给内置预处理器，因此 `cpp/pricing_engine.cpp` 可以直接写：
-
-```cpp
-#include <order_policy/pricing_session.hpp>
-```
-
-Python、Rust、Go manifest 的 `source` 则会被确定性地合并到对应 consumer 源码。合并后的同一源码既用于外语签名提取，也用于内置前端生成对象文件，避免“签名看见了包、真正编译却没看见”的分叉。Go 的 package 声明会在合并时规范化成 consumer 的 `package main`。整个过程不调用 pip、Cargo、Go modules 或网络包索引。
-
-四条对象路径都参与每一行订单的真实结果交叉检查：
-
-- C++ `OrderPricingSession`：四个 `int` 成员、双参数构造、成员读取/修改、多分支计算、析构清理；
-- Python `FraudAssessment`：`__init__` 构造四字段状态、状态修改方法、风险等级方法、显式 `close()` 清理；
-- Rust `FulfillmentSession`：命名字段构造、`&self` 业务方法、`&mut self` 状态清理方法；
-- Go `LogisticsSession`：栈上结构体、`NewLogisticsSession` 构造函数、指针 receiver 修改与读取方法。
-
-其中 `OrderPricingSession` 不是空壳类型。它实际执行：
-
-- 带两个参数的构造函数，初始化价格、数量、商品小计与折扣状态；
-- `subtotal()` 成员读取；
-- `apply_discount()` 成员状态修改与多层业务分支；
-- `payable()` 成员计算；
-- `lifecycle_checksum()` 多字段读取；
-- 析构函数中的四次成员清理写入。
-
-这些对象均在各自语言模块内形成真实聚合状态并经 IR/backend lowering，而不是由 Poly 入口伪造结果。C++ 后端按 `0/4/8/12` 字节字段偏移生成真实 GEP、load/store 与地址计算。每种语言的对象 wrapper 都必须与同语言的自由函数规则给出相同结果，否则分别返回错误码 `60`–`63`，整条订单流水线立即失败。
-
-## 数据读取与处理
-
-可执行文件在运行时打开 `data/orders.csv`，而不是把八行数据编译成常量。`polyc` 只在程序引用文件 API 时注入仓库内置的轻量原生运行时：
-
-- `file_open_ints(path)` 打开输入文件；
-- `file_next_int(fd, eof)` 跳过 CSV 标题和分隔符，解析下一个有符号整数；
-- `file_close(fd)` 关闭描述符。
-
-`process_order_stream` 一直递归读取到真实 EOF，并通过普通原生 ABI 参数累计行数、决策 checksum 和四类业务结果。它不是八次硬编码的读取序列。测试还会复制 CSV，修改第一笔订单的数量、但保持预期决策不变，再运行同一个已编译二进制，并要求得到受控校验状态 `225`。这能证明真实业务输入确实进入已编译的定价、库存和物流计算。
-
-当前文件运行时直接使用 x86_64 Linux/macOS 系统调用，不依赖 libc 或 CPython。
-
-## 十六个跨语言业务调用
-
-### C++：定价与对象一致性
-
-- `pricing_subtotal`
-- `pricing_discount`
-- `pricing_payable`
-- `pricing_session_payable`
-
-### Python：欺诈特征与对象一致性
-
-- `fraud_velocity_points`
-- `fraud_amount_points`
-- `fraud_risk_band`
-- `fraud_session_band`
-
-### Rust：库存、支付与对象一致性
-
-- `inventory_reservable`
-- `payment_authorization`
-- `fulfillment_gate`
-- `fulfillment_session_gate`
-
-### Go：物流、决策与对象一致性
-
-- `logistics_base_days`
-- `logistics_capacity_delay`
-- `logistics_decision`
-- `logistics_session_decision`
-
-这些函数包含嵌套分支、早返回、跨阶段数据依赖与四种最终业务状态。批准订单返回 `100 + 风险等级 × 10 + ETA`；审核、欺诈拒绝和库存拒绝分别返回 `20`、`40`、`30`。
-
-## CSV 验收数据
-
-| 订单 | 主要路径 | 决策 |
-| ---: | --- | ---: |
-| 1001 | 标准批准；区域 2 | 116 |
-| 1002 | 小额批准 | 113 |
-| 1003 | 中风险高金额，人工审核 | 20 |
-| 1004 | 三次失败支付，欺诈拒绝 | 40 |
-| 1005 | 扣除安全库存后数量不足 | 30 |
-| 1006 | ETA 达到 10 天，SLA 审核 | 20 |
-| 1007 | 对象定价路径与区域 1 批准 | 114 |
-| 1008 | 可售库存为零 | 30 |
-
-最终统计为 8 行、3 个批准、2 个审核、1 个欺诈拒绝、2 个库存拒绝，决策和为 `483`。成功退出码是 `483 - 251 = 232`。
-
-## 一条构建命令
-
-`run.sh` 中只有这一条编译命令：
-
-```bash
-../../build/polyc --strict --no-package-index -O0 \
-  -o build/polyc/order_risk order_risk.poly
-```
-
-`--no-package-index` 禁止探测或调用宿主包管理器；四个包均由项目本地 manifest 确定性解析。四条源码 `IMPORT` 和四条 `PACKAGE` 声明驱动内置前端编译，十六个 `CALL` 驱动符号签名与跨语言链接，文件运行时按需注入，最后由同一构建目录中的本地 `polyld` 输出可执行文件。
-
-## 文件
-
-| 文件 | 职责 |
-| --- | --- |
-| `order_risk.poly` | 四个包依赖、CSV 流处理、十六个外语调用、统计与断言 |
-| `packages/order_policy/poly.package.toml` | vendored 包元数据与 include 根声明 |
-| `packages/order_policy/include/order_policy/pricing_session.hpp` | 四字段 C++ 类、构造/析构与成员方法 |
-| `packages/fraud_policy/{poly.package.toml,src/fraud_policy.py}` | Python 包 manifest 与 `FraudAssessment` 类 |
-| `packages/fulfillment_policy/{poly.package.toml,src/fulfillment_policy.rs}` | Rust 包 manifest 与 `FulfillmentSession` 类型 |
-| `packages/logistics_policy/{poly.package.toml,src/logistics_policy.go}` | Go 包 manifest 与 `LogisticsSession` 类型 |
-| `cpp/pricing_engine.cpp` | C++ 对象适配器与三个独立定价规则 |
-| `python/fraud_engine.py` | Python 对象适配器与三个欺诈规则 |
-| `rust/fulfillment_engine.rs` | Rust 对象适配器与三个库存/支付规则 |
-| `go/logistics_engine.go` | Go 对象适配器与三个物流/决策规则 |
-| `data/orders.csv` | 运行时业务输入与期望结果 |
-| `run.sh` | 唯一构建命令、执行与退出码检查 |
-| `test.sh` | 构建产物、符号、包解析和数据敏感性审计 |
-
-## 运行
-
-先在仓库根目录构建 `polyc` 与 `polyld`，然后：
+先在仓库根目录构建 `polyc`、`polyld`。然后：
 
 ```bash
 cd examples/order_risk_analyzer
-./run.sh
-./test.sh
+POLYGLOT_BUILD_DIR=build-release ./run.sh
 ```
 
-也可以通过 `POLYGLOT_BUILD_DIR=build-release ./test.sh` 选择仓库内其他构建目录。脚本会拒绝仓库外工具链，避免误用系统中的同名程序。
-
-在受支持的 x86_64 POSIX 主机上，同一套验收也已注册到 CTest：
+脚本只调用一次仓库内的 `polyc`。等价的核心命令如下：
 
 ```bash
-ctest --test-dir build --output-on-failure -R '^example_order_risk_analyzer$'
+../../build-release/polyc --strict --no-package-index -O0 --regalloc=linear \
+  --build-report=build/polyc/build-report.json \
+  -o build/polyc/order_risk order_risk.poly
+build/polyc/order_risk data/orders.csv order-results.txt
 ```
 
-## 当前边界
+`run.sh` 支持 `POLY_OPT_LEVEL=0..3`、`POLY_REGALLOC=linear|graph`，参数 1、2 分别传入输入和输出文件。默认使用 `data/orders.csv` 与 `order-results.txt`。成功退出码为 **0**。标准输出和结果文件逐字一致：
 
-跨语言 ABI 仍刻意使用确定性的整数标量；四种对象状态都留在所属语言模块内部，不跨语言传递对象句柄。C++ 具有确定性析构；当前静态子集中的 Python/Rust 使用显式 `close()`，Go 本身没有析构语义，因此示例使用构造与 receiver 生命周期，不把这些路径伪称为 GC、Rust `Drop` 或 Go 析构。这里验证的是项目内、manifest 驱动的单源码 header/source vendoring，不是对 pip/Cargo/Go modules 全生态或远程下载的兼容；当前每种语言使用一个 consumer 单元，多个同语言 consumer 共享同一源码包的独立对象化仍需后续模块模型，Go consumer 也暂不支持在合并后的包声明之外重新组织任意 import 块。原生文件运行时当前支持 x86_64 Linux/macOS；不支持的平台会明确拒绝，而不是退回系统编译器或解释器。
+```text
+ORDER 1001 116
+ORDER 1002 113
+ORDER 1003 20
+ORDER 1004 40
+ORDER 1005 30
+ORDER 1006 20
+ORDER 1007 114
+ORDER 1008 30
+SUMMARY 8 3 2 1 2 483
+```
+
+`SUMMARY` 后的六个整数依次是：订单数、批准数、人工审核数、欺诈拒绝数、库存拒绝数、决策校验和。行数和汇总在运行时计算，没有固定为 8 或 483。
+
+## 输入与错误
+
+输入列为：
+
+```text
+order_id,unit_price,quantity,recent_orders,failed_payments,available_units,delivery_zone,expected_decision
+```
+
+- 订单 ID 为正整数；单价范围 `1..1000000`，数量 `1..1000`。
+- 近期订单数和库存范围 `0..1000000`，失败支付次数范围 `0..1000`，配送区域为 `1..3`。
+- `expected_decision` 用于逐笔验收，必须与真实计算结果相符。
+- 输入读取器是整数流读取器，会跳过标题文本与分隔符。它不是完整 CSV 语法解析器，不保证拒绝任意带引号、额外文字或错误分隔符的 CSV。
+- 空输入、缺失字段、上述范围不合法、期望不匹配都会非零退出，且不会输出成功汇总。已经输出的有效订单行可能保留在结果文件中。
+
+| 退出码 | 含义 |
+| --- | --- |
+| 0 | 全部订单通过，stdout 与结果文件写出成功 |
+| 220 | 输入打开失败 |
+| 221 | 文件关闭失败 |
+| 222 | 空输入、截断记录或业务字段范围错误 |
+| 225 | 实际决策与输入期望不符，包括对象路径一致性错误 |
+| 226 | 无法归类的决策 |
+| 227 | 结果文件打开或输出写入失败 |
+| 228 | 汇总数组分配失败 |
+
+## 四种语言的真实对象与包
+
+入口保留 16 个跨语言业务调用，同时核对自由函数结果和对象方法结果。四个对象均由所属语言前端降低为真实聚合状态，留在自己的模块内，不跨语言传递对象句柄：
+
+| 模块 | 包与对象路径 |
+| --- | --- |
+| C++ `pricing_engine.cpp` | `order_policy` 中 `OrderPricingSession`：四字段、构造、成员读写、析构 |
+| Python `fraud_engine.py` | `fraud_policy` 中 `FraudAssessment`：构造、状态更新、风险分级、显式 `close()` |
+| Rust `fulfillment_engine.rs` | `fulfillment_policy` 中 `FulfillmentSession`：结构体构造、`&self`、`&mut self` 方法 |
+| Go `logistics_engine.go` | `logistics_policy` 中 `LogisticsSession`：结构体构造、指针 receiver 修改与读取 |
+
+`IMPORT <language> PACKAGE <name> >= 1.0` 解析项目 `packages/` 下的 `poly.package.toml`。C++ 包声明 include 根；另外三个包的源文件合并到对应 consumer。`--no-package-index` 禁止宿主包管理器和网络索引查询。源码发现、签名提取和实际编译使用同一份包来源。
+
+这验证项目内 manifest 驱动的 header/source vendoring，不声称兼容 pip/Cargo/Go modules 的完整生态。Python/Rust 的显式 `close()` 不代表 Python GC 或 Rust `Drop`；Go 不声明析构语义。
+
+## 完整工程回归
+
+在项目根目录运行：
+
+```bash
+python3 tests/native_programs/mixed_regression.py \
+  --polyc build-release/polyc --output-root build-release/mixed-regression \
+  --require-reference
+```
+
+也可以在示例目录执行 `./test.sh --require-reference`。脚本覆盖 **O0–O3 × linear/graph，共 8 个编译配置**。每个配置生成一次可执行文件，然后用同一个文件执行十个场景：
+
+1. 原始八笔订单；
+2. 第一笔数量由 7 改成 8，并更新期望，必须输出新结果 117；
+3. 扩展到 24 笔订单，验证动态行数与汇总；
+4. 倒序输入，验证逐笔顺序跟随输入；
+5. 修改数量但保留旧期望，必须失败；
+6. 截断记录；
+7. 非法数量；
+8. 空输入；
+9. 缺少输入文件；
+10. 输出目标为目录。
+
+成功场景必须同时满足完整 stdout、完整结果文件、空 stderr 和退出码。错误场景核对指定的非零退出码与输出，不能只以“程序崩溃了”算通过。
+
+每次构建还检查 `polyglot.native-build.v1` 报告：Poly 与四个外语模块必须都存在、成功、提供耗时与对象路径，并实际继承请求的优化等级和寄存器分配器。缺少元数据不是通过。
+
+官方参考编译保留原始模块和包实现，只加标准入口/I/O 适配器；Python 测试驱动依次组合四个语言的真实计算结果，再与独立整数规则 oracle 及原生应用完整输出比较。缺少工具会记录为覆盖缺口；`--require-reference` 会让此情况硬失败。Poly 没有独立官方实现，因此这不构成 Poly 全语言一致性证明。
+
+## 性能评估
+
+先完成工程回归，在无其他编译任务的主机窗口执行：
+
+```bash
+python3 scripts/benchmark_mixed_native.py --polyc build-release/polyc \
+  --output build-release/mixed-performance/run-001 \
+  --warmups 1 --repetitions 7 --row-counts 8 800 8000 --require-reference
+```
+
+输出目录必须是新的，避免覆盖历史证据。每轮固定种子打乱八个配置的顺序；每次编译使用新源码副本和新产物目录。源码复制和官方参考构建不计入原生编译时间，不清空操作系统文件缓存。
+
+默认共 64 次新编译：八个配置 ×（一次预热 + 七次测量）。首次启动延迟单独记录。完成十个验收场景后，每个产物独立处理 8、800、8000 行，并用固定种子打乱三个规模的顺序，不复用验收计时；每种规模均从已启动过的可执行文件创建新进程。大输入使用唯一订单 ID，重复相同业务规则分布，由独立整数规则重新计算每条决策与汇总；每种规模都逐字校验 stdout 和结果文件。官方源码对照覆盖四个较小的成功验收场景，大输入用于观察数据量增长，不增加业务规则覆盖面。
+
+报告保存总编译时间、逐模块编译时间、各行数的运行时间分布、可用的峰值 RSS、二进制大小，以及全部原始测量、命令、版本与文件哈希。峰值 RSS 来自 `wait4` 的单次子进程资源记录，不是所有同时运行子进程内存之和。运行时间包括进程启动、读取、stdout 与文件写入。任一验收或规模运行失败，该配置不生成性能聚合。
+
+`results.json` 保存原始证据，`report.md` 保存分布摘要。预热不进入统计；单次预检不能称为正式性能结果。
+
+## CI 门禁和工具链
+
+`.github/workflows/native-validation.yml` 由主 CI 调用，也可手动触发。Linux/macOS 作业显式安装 Go、Rust、Python、Node、Java、.NET、Ruby 和 Qt，运行原生差分、运行时、标准入口、真实混合项目和 Qt 工作区测试。macOS ARM64 还运行真实追踪与数值 ABI 回归，并检查 UI 中的运行值；Linux x86 只运行追踪模型测试，明确记录不支持原生追踪。缺少 Qt 目标、缺少官方参考、编译/运行/输出不一致均失败。CI 的单次性能脚本运行只验证测量链路，不发布性能结论。
+
+Rust 使用 [官方 rustup 安装说明](https://rust-lang.org/tools/install/)，Go 使用 [官方安装说明](https://go.dev/doc/install)；本地探测版本和路径会写入报告。远程 CI 是否通过，只能以实际 workflow run 为依据，新增 workflow 文件不代表已经在远程运行。
 
 English: [README.md](README.md)

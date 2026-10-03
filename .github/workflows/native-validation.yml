@@ -1,0 +1,121 @@
+name: Native application and Qt acceptance
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-and-qt:
+    name: Native execution and real Qt (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.6'
+          cache: false
+      - name: Install official Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup default 1.85.0
+          rustc --version
+          go version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Install Linux build and Qt dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang qt6-base-dev libgl1-mesa-dev
+      - name: Install macOS build and Qt dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja qt
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt)" >> "$GITHUB_ENV"
+      - name: Configure required native and Qt targets
+        run: cmake -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build required targets (missing Qt fails here)
+        run: >-
+          cmake --build build-native --target polyc polyld polyui test_topology_ui
+          test_native_trace_model test_problems test_cross_language_navigation --parallel 3
+      - name: Execute all scalar differential configurations with official references
+        run: >-
+          python scripts/differential_native.py --polyc build-native/polyc
+          --output build-native/native-differential --require-reference
+      - name: Execute native runtime and standard entry regressions
+        run: |
+          python tests/native_programs/runtime_regression.py --polyc build-native/polyc --output build-native/native-runtime
+          python tests/native_programs/entry_regression.py --polyc build-native/polyc --output-root build-native/native-entries
+      - name: Execute real mixed application matrix with official references
+        run: >-
+          python tests/native_programs/mixed_regression.py --polyc build-native/polyc
+          --output build-native/native-mixed --require-reference
+      - name: Verify benchmark collection (one sample, no performance claim)
+        run: >-
+          python scripts/benchmark_mixed_native.py --polyc build-native/polyc
+          --output build-native/mixed-measurement-precheck --opt-levels 0
+          --allocators linear --warmups 0 --repetitions 1 --row-counts 8 800 8000 --require-reference
+      - name: Execute topology, trace model and navigation tests
+        run: >-
+          ctest --test-dir build-native --output-on-failure --no-tests=error
+          -R '^(test_topology_ui|test_native_trace_model|test_problems|test_cross_language_navigation)$'
+      - name: Execute ARM64 native trace and numeric ABI regressions
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test "$(uname -m)" = arm64
+          python tests/native_programs/trace_regression.py --polyc build-native/polyc --output-root build-native/native-trace
+          python tests/native_programs/numeric_abi_regression.py --compiler build-native/polyc --output build-native/native-numeric-abi
+      - name: Record Linux x86 trace capability boundary
+        if: runner.os == 'Linux'
+        run: echo 'Native runtime tracing is not supported on this x86 runner; only the trace model is tested here. ARM64 execution is required in the macOS job.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Execute real Qt source and documentation navigation
+        shell: bash
+        run: |
+          ui=build-native/polyui
+          trace_args=()
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            ui=build-native/polyui.app/Contents/MacOS/polyui
+            trace_args+=(--include-native-trace)
+          fi
+          test -x "$ui"
+          python tests/native_programs/qt_smoke_gate.py --polyui "$ui" --output build-native/ui-smoke "${trace_args[@]}"
+      - name: Retain complete results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-and-qt-${{ matrix.os }}
+          path: |
+            build-native/native-*/
+            build-native/mixed-measurement-precheck/
+            build-native/ui-smoke/
+            build-native/Testing/Temporary/LastTest.log
+            !build-native/**/go-cache/**
+            !build-native/**/go-path/**
+          retention-days: 14

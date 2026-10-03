@@ -1648,11 +1648,11 @@ PloyLowering::EvalResult PloyLowering::LowerUnaryExpression(
   EvalResult operand = LowerExpression(unary->operand);
 
   if (unary->op == "-") {
-    // Negate: 0 - operand
-    bool is_float =
-        (operand.type.kind == ir::IRTypeKind::kF32 || operand.type.kind == ir::IRTypeKind::kF64);
-    auto op = is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
-    auto inst = builder_.MakeBinary(op, "0", operand.value, "neg");
+    if (operand.type.IsFloat()) {
+      auto inst = builder_.MakeFloatNegate(operand.value, operand.type, "neg");
+      return {inst->name, operand.type};
+    }
+    auto inst = builder_.MakeBinary(ir::BinaryInstruction::Op::kSub, "0", operand.value, "neg");
     inst->type = operand.type;
     return {inst->name, operand.type};
   }
@@ -1904,6 +1904,29 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     }
   }
 
+  if (direct_native_import) {
+    const auto signature = sema_.KnownSignatures().find(call->function);
+    if (signature != sema_.KnownSignatures().end()) {
+      const auto &parameters = signature->second.param_types;
+      if (parameters.size() != arg_names.size()) {
+        diagnostics_.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                                 "native CALL has an incomplete parameter ABI signature");
+        return {"", ir::IRType::Invalid()};
+      }
+      for (std::size_t i = 0; i < parameters.size(); ++i) {
+        const auto destination = CoreTypeToIR(parameters[i]);
+        if (arg_types[i].SameShape(destination))
+          continue;
+        const auto converted = "native_arg_" + std::to_string(generated_name_index_++);
+        if (!GenerateMarshalCode(arg_names[i], arg_types[i], destination, converted, call->loc,
+                                 "native CALL argument " + std::to_string(i + 1)))
+          return {"", ir::IRType::Invalid()};
+        arg_names[i] = builder_.GetInsertPoint()->instructions.back()->name;
+        arg_types[i] = destination;
+      }
+    }
+  }
+
   // Record a runtime bridge descriptor only for non-native calls.  Local
   // source imports are represented in the staged driver's marshal plan and
   // linked directly.
@@ -1936,6 +1959,15 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
 
   // Emit the call instruction to the stub
   auto inst = builder_.MakeCall(stub_name, arg_names, call_ret_type, "");
+  inst->trace_language = call->language;
+  inst->trace_callee = call->function;
+  inst->trace_file = call->loc.file;
+  inst->trace_line = call->loc.line;
+  inst->trace_column = call->loc.column;
+  inst->trace_argument_types = arg_types;
+  if (const auto signature = sema_.KnownSignatures().find(call->function);
+      signature != sema_.KnownSignatures().end())
+    inst->trace_argument_names = signature->second.param_names;
   return {inst->name, inst->type};
 }
 
@@ -2997,6 +3029,13 @@ bool PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
       // operation-selection metadata used by signed/unsigned comparisons.
       emit_assign();
     }
+    return true;
+  }
+
+  if (src_type.IsInteger() && dst_type.IsFloat()) {
+    builder_.MakeCast(src_type.is_signed ? ir::CastInstruction::CastKind::kSiToFp
+                                         : ir::CastInstruction::CastKind::kUiToFp,
+                      src_val, dst_type, dst_name);
     return true;
   }
 

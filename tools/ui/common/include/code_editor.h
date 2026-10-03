@@ -107,6 +107,9 @@ public:
   void ShowInlineDefinition(const cross_language::FunctionDocumentation &definition);
   void HideInlineDefinition();
   bool InlineDefinitionVisible() const;
+  void ShowRuntimeSample(int line, const QString &summary);
+  void ClearRuntimeSample();
+  int RuntimeSampleLine() const { return runtime_sample_line_; }
   std::vector<cross_language::FunctionDocumentation> InspectAtCursor(const QTextCursor &cursor) const;
   QString SymbolAtCursor(const QTextCursor &cursor) const;
 
@@ -172,6 +175,7 @@ private:
   // Compute the word (prefix) at the current cursor position
   QString WordUnderCursor() const;
   void LayoutInlineDefinition();
+  int runtime_sample_line_{0};
   bool ShowSourceHover(const QTextCursor &cursor, const QPoint &anchor);
 
 

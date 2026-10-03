@@ -26,17 +26,18 @@
 #include <sstream>
 #include <string>
 
+#include "backends/common/include/backend_registry.h"
+#include "backends/common/include/target_backend.h"
 #include "common/include/version.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/frontend_registry.h"
-#include "backends/common/include/backend_registry.h"
-#include "backends/common/include/target_backend.h"
 #include "runtime/include/libs/base.h"
 #include "tools/common/include/effective_settings_loader.h"
+#include "tools/polyc/include/call_graph_emitter.h"
 #include "tools/polyc/include/compilation_cache.h"
 #include "tools/polyc/include/compilation_pipeline.h"
 #include "tools/polyc/include/driver_stages.h"
-#include "tools/polyc/include/call_graph_emitter.h"
+#include "tools/polyc/include/native_call_trace.h"
 #include "tools/polyc/src/stage_backend.h"
 #include "tools/polyc/src/stage_bridge.h"
 #include "tools/polyc/src/stage_frontend.h"
@@ -70,6 +71,48 @@ std::string ReadFileContent(const std::string &path) {
   std::string content(static_cast<std::size_t>(size), '\0');
   ifs.read(content.data(), size);
   return content;
+}
+
+bool WriteNativeBuildReport(
+    const DriverSettings &settings,
+    const std::vector<compilation::CompilationContext::Config::ModuleBuildRecord> &modules,
+    double main_ms, double total_ms, bool success) {
+  if (settings.build_report_path.empty())
+    return true;
+  try {
+    const fs::path path(settings.build_report_path);
+    if (path.has_parent_path())
+      fs::create_directories(path.parent_path());
+    std::ofstream out(path, std::ios::trunc);
+    const auto allocation = settings.regalloc == RegAllocChoice::kStack           ? "stack"
+                            : settings.regalloc == RegAllocChoice::kGraphColoring ? "graph-coloring"
+                                                                                  : "linear-scan";
+    out << "{\"schema\":\"polyglot.native-build.v1\",\"status\":"
+        << NativeJsonString(success ? "succeeded" : "failed")
+        << ",\"total_elapsed_ms\":" << std::setprecision(12) << total_ms
+        << ",\"target\":" << NativeJsonString(settings.target_triple.str()) << ",\"modules\":[";
+    const auto row = [&](const std::string &language, const std::string &source,
+                         const std::string &object, double elapsed, bool okay) {
+      out << "{\"language\":" << NativeJsonString(language)
+          << ",\"source\":" << NativeJsonString(source)
+          << ",\"object\":" << NativeJsonString(object) << ",\"opt_level\":" << settings.opt_level
+          << ",\"regalloc\":" << NativeJsonString(allocation) << ",\"elapsed_ms\":" << elapsed
+          << ",\"status\":" << NativeJsonString(okay ? "succeeded" : "failed") << '}';
+    };
+    row(settings.language, settings.source_path, settings.output, main_ms, success);
+    for (const auto &module : modules) {
+      out << ',';
+      row(module.language, module.source, module.object, module.elapsed_ms, module.success);
+    }
+    out << "]}\n";
+    out.close();
+    if (!out)
+      throw std::runtime_error("cannot write build report " + path.string());
+    return true;
+  } catch (const std::exception &error) {
+    std::cerr << "[error] " << error.what() << '\n';
+    return false;
+  }
 }
 
 // Resolve a sibling tool binary (e.g. "polyld") relative to the directory
@@ -125,6 +168,8 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --emit=call-graph:<path>      Write static call graph JSON\n"
           << "  --emit=profile-symbols:<path> Write profile-symbol map JSON\n"
           << "  --profile-instrument          Insert call-trace hooks (LTO removable)\n"
+          << "  --trace-calls=<path>           Record native Poly CALL values and timing (ARM64)\n"
+          << "  --build-report=<path>          Write module build timings and effective options\n"
           << "  --obj-format=<fmt>  pobj|coff|elf|macho\n"
           << "\n"
           << "Cross compilation (BIN-7):\n"
@@ -154,7 +199,8 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --regalloc=<mode>   linear-scan|graph-coloring|stack (ARM64 baseline)\n"
           << "  --print-targets[=json|text]            List registered backends and exit\n"
           << "  --print-target-info=<triple>[:json]    Print one backend's info and exit\n"
-          << "  --check <file>      Run frontend analysis only and emit LSP-style JSON diagnostics\n"
+          << "  --check <file>      Run frontend analysis only and emit LSP-style JSON "
+             "diagnostics\n"
           << "\n"
           << "External-package options:\n"
           << "  -I<path> / --I=<path>     C/C++ user header search path\n"
@@ -284,6 +330,22 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg == "--profile-instrument") {
       s.profile_instrument = true;
+      continue;
+    }
+    if (arg.rfind("--trace-calls=", 0) == 0) {
+      s.trace_calls_path = arg.substr(14);
+      if (s.trace_calls_path.empty()) {
+        std::cerr << "--trace-calls requires a path\n";
+        std::exit(2);
+      }
+      continue;
+    }
+    if (arg.rfind("--build-report=", 0) == 0) {
+      s.build_report_path = arg.substr(15);
+      if (s.build_report_path.empty()) {
+        std::cerr << "--build-report requires a path\n";
+        std::exit(2);
+      }
       continue;
     }
     if (arg.rfind("--arch=", 0) == 0) {
@@ -681,6 +743,43 @@ std::string SetupAuxDir(const DriverSettings &s) {
   }
   return aux.string();
 }
+
+// Source bundling and link aliases are required compilation intermediates,
+// including when --no-aux suppresses persistent diagnostic sidecars.
+class TemporaryAuxDirectory {
+public:
+  TemporaryAuxDirectory() = default;
+  TemporaryAuxDirectory(const TemporaryAuxDirectory &) = delete;
+  TemporaryAuxDirectory &operator=(const TemporaryAuxDirectory &) = delete;
+  ~TemporaryAuxDirectory() {
+    if (!path_.empty()) {
+      std::error_code ignored;
+      fs::remove_all(path_, ignored);
+    }
+  }
+  bool Create(std::string &directory) {
+    std::error_code error;
+    const auto parent = fs::temp_directory_path(error);
+    if (error)
+      return false;
+    const auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    for (unsigned attempt = 0; attempt < 128; ++attempt) {
+      const auto candidate =
+          parent / ("polyc-native-" + std::to_string(nonce) + "-" + std::to_string(attempt));
+      if (fs::create_directory(candidate, error)) {
+        path_ = candidate;
+        directory = path_.string();
+        return true;
+      }
+      if (error)
+        return false;
+    }
+    return false;
+  }
+
+private:
+  fs::path path_;
+};
 
 std::string SourceStem(const DriverSettings &s) {
   return s.source_path.empty() ? "output" : fs::path(s.source_path).stem().string();
@@ -1206,6 +1305,11 @@ int main(int argc, char **argv) {
   // ---- .poly: delegate to existing CompilationPipeline ------------------
   if (settings.language == "poly") {
     std::string aux_dir = SetupAuxDir(settings);
+    TemporaryAuxDirectory temporary_aux;
+    if (aux_dir.empty() && !temporary_aux.Create(aux_dir)) {
+      std::cerr << "[error] cannot create temporary directory for native module compilation\n";
+      return 1;
+    }
     std::string source_label = settings.source_path.empty() ? "<cli>" : settings.source_path;
 
     polyglot::compilation::CompilationContext::Config cfg;
@@ -1235,6 +1339,7 @@ int main(int argc, char **argv) {
     cfg.strict_mode = settings.strict;
     cfg.force = settings.force;
     cfg.profile_instrument = settings.profile_instrument;
+    cfg.trace_calls_path = settings.trace_calls_path;
     cfg.aux_dir = aux_dir;
     cfg.package_index = settings.package_index;
     cfg.package_index_timeout_ms = settings.package_index_timeout_ms;
@@ -1294,6 +1399,17 @@ int main(int argc, char **argv) {
       }
       t.Stop();
     }
+    double primary_ms = 0.0;
+    for (const auto &timing : pipeline.GetContext().timings)
+      if (timing.name.find("Packaging") == std::string::npos &&
+          timing.name.find("packaging") == std::string::npos)
+        primary_ms += timing.elapsed_ms;
+    const double complete_ms = std::chrono::duration<double, std::milli>(
+                                   std::chrono::high_resolution_clock::now() - total_start)
+                                   .count();
+    if (!WriteNativeBuildReport(settings, pipeline.GetContext().config.module_builds, primary_ms,
+                                complete_ms, ok))
+      return 1;
     if (!ok) {
       std::cerr << "[error] staged pipeline failed.\n";
       for (const auto &d : pipeline.GetContext().diagnostics->All())
@@ -1318,6 +1434,11 @@ int main(int argc, char **argv) {
   }
 
   // ---- Non-.poly: six-stage pipeline -----------------------------------
+  if (!settings.trace_calls_path.empty()) {
+    std::cerr
+        << "[error] --trace-calls currently instruments Poly cross-language CALL boundaries\n";
+    return 2;
+  }
   std::string aux_dir = SetupAuxDir(settings);
   std::string stem = SourceStem(settings);
   if (!aux_dir.empty() && V)
@@ -1446,6 +1567,12 @@ int main(int argc, char **argv) {
   double total_ms = std::chrono::duration<double, std::milli>(
                         std::chrono::high_resolution_clock::now() - total_start)
                         .count();
+  if (!WriteNativeBuildReport(settings, {},
+                              stage_ms[0] + stage_ms[1] + stage_ms[2] + stage_ms[3] + stage_ms[4],
+                              total_ms, true)) {
+    polyglot_gc_unregister_root(&scratch);
+    return 1;
+  }
 
   // Write build_profile.bin to aux directory (binary stage statistics)
   if (!aux_dir.empty() && settings.emit_aux) {

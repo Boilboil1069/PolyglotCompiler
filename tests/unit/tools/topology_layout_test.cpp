@@ -416,3 +416,32 @@ TEST_CASE("TopologyPanel routes long dependencies around unrelated function card
     CHECK(panel.grab().save(output + "/topology-order-flow.png"));
   }
 }
+
+TEST_CASE("Layout keeps edges attached and subsequent card dragging updates them",
+          "[topology][ui][layout]") {
+  GetOrCreateApp();
+  QSettings settings("PolyglotCompiler", "IDE");
+  settings.setValue("topology/layout_mode", LayoutModeToString(LayoutMode::kHierarchical));
+  TopologyPanel panel;
+  const auto path = WriteTempPloy(kSampleSource, "topo_layout_drag_after_batch.poly");
+  panel.LoadFromFile(path);
+  REQUIRE_FALSE(panel.EdgeItems().empty());
+  const auto check_connections = [&]() {
+    for (const auto *edge : panel.EdgeItems()) {
+      const auto *source = panel.NodeItems().at(edge->SourceNodeId());
+      const auto *target = panel.NodeItems().at(edge->TargetNodeId());
+      const auto from = source->OutputPortPos(edge->SourcePortId());
+      const auto to = target->InputPortPos(edge->TargetPortId());
+      CHECK(QLineF(edge->path().pointAtPercent(0), from).length() < 0.001);
+      CHECK(QLineF(edge->path().pointAtPercent(1), to).length() < 0.001);
+    }
+  };
+  check_connections();
+  auto *source = panel.NodeItems().at(panel.EdgeItems().front()->SourceNodeId());
+  source->moveBy(67, -43);
+  check_connections();
+  auto *target = panel.NodeItems().at(panel.EdgeItems().front()->TargetNodeId());
+  target->moveBy(-38, 61);
+  check_connections();
+  QFile::remove(path);
+}

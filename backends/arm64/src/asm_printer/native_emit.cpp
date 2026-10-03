@@ -334,6 +334,17 @@ class NativeEmitter {
         Emit(extend ? 0x1E22C000u : 0x1E624000u);
         Emit((extend ? 0x9E660000u : 0x1E260000u) | 9);
       }
+      if (c->cast == CastInstruction::CastKind::kSiToFp ||
+          c->cast == CastInstruction::CastKind::kUiToFp) {
+        auto source = Type(c->operands[0]);
+        source.is_signed = c->cast == CastInstruction::CastKind::kSiToFp;
+        Normalize(9, source);
+        const bool single = c->type.kind == IRTypeKind::kF32;
+        // SCVTF/UCVTF s0/d0,x9; FMOV returns the converted IEEE bits.
+        Emit((single ? 0x9E220000u : 0x9E620000u) | (source.is_signed ? 0u : 0x00010000u) |
+             (9 << 5));
+        Emit((single ? 0x1E260000u : 0x9E660000u) | 9);
+      }
       Save(inst);
     } else if (dynamic_cast<const LoadInstruction *>(&inst)) {
       Load(inst.operands.at(0), 10);
@@ -350,9 +361,19 @@ class NativeEmitter {
       Emit((size == 1 ? 0x39000000u : size == 2 ? 0x79000000u : size == 4 ? 0xB9000000u : 0xF9000000u) | (10 << 5) | 9);
     } else if (auto gep = dynamic_cast<const GetElementPtrInstruction *>(&inst)) {
       Load(inst.operands.at(0), 9);
-      IRType type = gep->source_type; std::size_t offset = 0;
+      // Match IRBuilder/ResolveGEPResultType: the first index dereferences
+      // the base pointer; subsequent indices select aggregate storage.
+      IRType type = (gep->source_type.kind == IRTypeKind::kPointer ||
+                     gep->source_type.kind == IRTypeKind::kReference)
+                        ? gep->source_type
+                        : IRType::Pointer(gep->source_type);
+      std::size_t offset = 0;
       for (auto index : gep->indices) {
-        if (type.kind == IRTypeKind::kStruct) {
+        if (type.kind == IRTypeKind::kPointer || type.kind == IRTypeKind::kReference) {
+          if (type.subtypes.empty())
+            Fail("GEP pointer without pointee type");
+          type = IRType(type.subtypes.front());
+        } else if (type.kind == IRTypeKind::kStruct) {
           if (index >= type.subtypes.size()) Fail("GEP field out of range");
           std::size_t field_offset = 0;
           for (std::size_t i = 0; i <= index; ++i) {
@@ -361,9 +382,18 @@ class NativeEmitter {
             if (i < index) field_offset += module.Layout().SizeOf(type.subtypes[i]);
           }
           offset += field_offset; type = IRType(type.subtypes[index]);
-        } else if (!type.subtypes.empty()) {
-          type = IRType(type.subtypes[0]); offset += index * module.Layout().SizeOf(type);
-        } else Fail("unsupported GEP type");
+        } else if (type.kind == IRTypeKind::kArray || type.kind == IRTypeKind::kVector) {
+          if (type.subtypes.empty() || index >= type.count)
+            Fail("GEP array index out of range");
+          const bool array = type.kind == IRTypeKind::kArray;
+          type = IRType(type.subtypes.front());
+          auto stride = module.Layout().SizeOf(type);
+          const auto align = module.Layout().AlignOf(type);
+          if (array)
+            stride = (stride + align - 1) / align * align;
+          offset += index * stride;
+        } else
+          Fail("unsupported GEP type");
       }
       Imm(10, offset); Emit(0x8B0A0129u); Save(inst);
     } else if (auto call = dynamic_cast<const CallInstruction *>(&inst)) {

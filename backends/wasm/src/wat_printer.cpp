@@ -1,3 +1,4 @@
+#include <stdexcept>
 /**
  * @file     wat_printer.cpp
  * @brief    WebAssembly text format (WAT) emitter
@@ -24,6 +25,10 @@ namespace polyglot::backends::wasm {
 namespace {
 
 void EmitInstructionWATImpl(std::ostream &os, const std::shared_ptr<ir::Instruction> &inst) {
+  if (auto *cast = dynamic_cast<ir::CastInstruction *>(inst.get());
+      cast && (cast->cast == ir::CastInstruction::CastKind::kSiToFp ||
+               cast->cast == ir::CastInstruction::CastKind::kUiToFp))
+    throw std::runtime_error("WASM integer-to-float conversion is not implemented");
   if (auto *constant = dynamic_cast<ir::ConstantInstruction *>(inst.get())) {
     if (constant->type.kind == ir::IRTypeKind::kF32)
       os << "    f32.const " << std::hexfloat << std::bit_cast<float>(static_cast<std::uint32_t>(constant->bits)) << std::defaultfloat << "\n";

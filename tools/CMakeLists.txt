@@ -379,6 +379,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/tasks/task_runner.cpp
         ui/common/runtime/run_debug_picker.cpp
         ui/common/runtime/hot_reload.cpp
+        ui/common/runtime/native_call_trace.cpp
         ui/common/testing/test_model.cpp
         ui/common/testing/inline_test_lens.cpp
         ui/common/testing/coverage_model.cpp
@@ -423,6 +424,8 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/file_browser.cpp
         ui/common/src/output_panel.cpp
         ui/common/src/compiler_service.cpp
+        ui/common/src/native_trace_panel.cpp
+        ui/common/include/native_trace_panel.h
         ui/common/src/terminal_widget.cpp
         ui/common/src/settings_dialog.cpp
         ui/common/src/settings_page.cpp

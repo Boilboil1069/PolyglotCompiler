@@ -234,7 +234,7 @@ BinaryInstruction::Op ParseBinOp(const std::string &s) {
   return BinaryInstruction::Op::kAdd;
 }
 
-[[maybe_unused]] CastInstruction::CastKind ParseCast(const std::string &s) {
+CastInstruction::CastKind ParseCast(const std::string &s) {
   if (s == "zext")
     return CastInstruction::CastKind::kZExt;
   if (s == "sext")
@@ -247,6 +247,10 @@ BinaryInstruction::Op ParseBinOp(const std::string &s) {
     return CastInstruction::CastKind::kFpExt;
   if (s == "fptrunc")
     return CastInstruction::CastKind::kFpTrunc;
+  if (s == "sitofp")
+    return CastInstruction::CastKind::kSiToFp;
+  if (s == "uitofp")
+    return CastInstruction::CastKind::kUiToFp;
   if (s == "inttoptr")
     return CastInstruction::CastKind::kIntToPtr;
   if (s == "ptrtoint")
@@ -459,6 +463,19 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx,
       st->operands = SplitOperands(ops);
       st->type = ty;
       new_inst = st;
+    } else if (StartsWith(inst_part, "zext ") || StartsWith(inst_part, "sext ") ||
+               StartsWith(inst_part, "trunc ") || StartsWith(inst_part, "bitcast ") ||
+               StartsWith(inst_part, "fpext ") || StartsWith(inst_part, "fptrunc ") ||
+               StartsWith(inst_part, "sitofp ") || StartsWith(inst_part, "uitofp ") ||
+               StartsWith(inst_part, "inttoptr ") || StartsWith(inst_part, "ptrtoint ")) {
+      auto cast = std::make_shared<CastInstruction>();
+      const auto split = inst_part.find(' ');
+      cast->cast = ParseCast(inst_part.substr(0, split));
+      cast->operands = SplitOperands(Trim(inst_part.substr(split + 1)));
+      cast->name = lhs;
+      cast->type = ty;
+      new_inst = cast;
+      value_types[cast->name] = cast->type;
     } else if (StartsWith(inst_part, "gep")) {
       auto gep = std::make_shared<GetElementPtrInstruction>();
       std::string rest = Trim(inst_part.substr(3));

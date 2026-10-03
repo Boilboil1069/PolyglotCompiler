@@ -46,6 +46,7 @@
 #include "runtime/include/libs/native_file_runtime.h"
 #include "tools/polyc/include/compilation_pipeline.h"
 #include "tools/polyc/include/linker_probe.h"
+#include "tools/polyc/include/native_call_trace.h"
 #include "tools/polyc/src/foreign_signature_extractor.h"
 #include "tools/polyc/src/local_source_packages.h"
 
@@ -809,6 +810,7 @@ std::vector<ImportedFunction> CollectImportedFunctions(const CompilationContext:
 std::string CompileImportedSource(const CompilationContext::Config &config,
                                   const ImportedFunction &fn,
                                   const std::string &effective_fmt) {
+  const auto module_started = std::chrono::steady_clock::now();
   if (config.aux_dir.empty())
     return {};
   std::string bundle_error;
@@ -833,8 +835,20 @@ std::string CompileImportedSource(const CompilationContext::Config &config,
       "--arch=" + config.target_arch,
       "--obj-format=" + effective_fmt,
       "--target=" + config.target_triple.str(),
+      "-O" + std::to_string(config.opt_level),
       "--no-aux",
   };
+  switch (config.reg_alloc) {
+  case backends::RegAllocStrategy::kLinearScan:
+    args.push_back("--regalloc=linear-scan");
+    break;
+  case backends::RegAllocStrategy::kGraphColoring:
+    args.push_back("--regalloc=graph-coloring");
+    break;
+  case backends::RegAllocStrategy::kStack:
+    args.push_back("--regalloc=stack");
+    break;
+  }
   if (!config.verbose)
     args.push_back("--quiet");
   if (config.strict_mode)
@@ -883,14 +897,20 @@ std::string CompileImportedSource(const CompilationContext::Config &config,
               << " -> " << out.string() << "\n";
   }
   int rc = std::system(cmd.c_str());
+  const bool produced_object = rc == 0 && fs::is_regular_file(out);
+  config.module_builds.push_back(
+      {fn.language, fn.source_file, out.string(),
+       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - module_started)
+           .count(),
+       produced_object});
   if (rc != 0)
     return {};
   std::error_code ec;
   return fs::exists(out, ec) ? out.string() : std::string{};
 }
 
-linker::Relocation MakeCallReloc(std::uint64_t offset, std::uint32_t symbol_index,
-                                 const CompilationContext::Config &config) {
+linker::Relocation MakeAliasReloc(std::uint64_t offset, std::uint32_t symbol_index,
+                                  const CompilationContext::Config &config) {
   linker::Relocation reloc{};
   reloc.symbol_index = static_cast<int>(symbol_index);
   reloc.addend = 0;
@@ -899,22 +919,24 @@ linker::Relocation MakeCallReloc(std::uint64_t offset, std::uint32_t symbol_inde
        config.target_arch == "armv8");
   if (use_arm64) {
     reloc.offset = offset;
-    reloc.type = static_cast<std::uint32_t>(linker::RelocationType_ARM64::kR_AARCH64_CALL26);
+    reloc.type = static_cast<std::uint32_t>(linker::RelocationType_ARM64::kR_AARCH64_JUMP26);
   } else {
-    reloc.offset = offset + 1; // skip the E8 call opcode; patch rel32
+    reloc.offset = offset + 1; // skip the E9 jump opcode; patch rel32
     reloc.type = static_cast<std::uint32_t>(linker::RelocationType_x86_64::kR_X86_64_PLT32);
     reloc.addend = -4;
   }
   return reloc;
 }
 
-std::vector<std::uint8_t> MakeCallThroughCode(const CompilationContext::Config &config) {
+std::vector<std::uint8_t> MakeAliasCode(const CompilationContext::Config &config) {
   const bool use_arm64 =
       (config.target_arch == "arm64" || config.target_arch == "aarch64" ||
        config.target_arch == "armv8");
+  // Aliases preserve the original return address and argument stack. A BL
+  // followed by RET would overwrite x30 and return to its own RET forever.
   if (use_arm64)
-    return {0x00, 0x00, 0x00, 0x94, 0xC0, 0x03, 0x5F, 0xD6};
-  return {0xE8, 0x00, 0x00, 0x00, 0x00, 0xC3};
+    return {0x00, 0x00, 0x00, 0x14};
+  return {0xE9, 0x00, 0x00, 0x00, 0x00};
 }
 
 void AddAliasWrapper(const CompilationContext::Config &config,
@@ -924,10 +946,10 @@ void AddAliasWrapper(const CompilationContext::Config &config,
   std::uint32_t target_index = static_cast<std::uint32_t>(symbols.size());
   symbols.push_back(InternalSymbol{target_symbol, 0xFFFFFFFF, 0, 0, true, false});
 
-  const auto code = MakeCallThroughCode(config);
+  const auto code = MakeAliasCode(config);
   const std::uint64_t base = static_cast<std::uint64_t>(text.data.size());
   text.data.insert(text.data.end(), code.begin(), code.end());
-  auto reloc = MakeCallReloc(base, target_index, config);
+  auto reloc = MakeAliasReloc(base, target_index, config);
   reloc.symbol = target_symbol;
   text.relocs.push_back(reloc);
 
@@ -1415,6 +1437,24 @@ public:
 
     // Preserve the historical __ploy_rt_* hook ABI while publishing the
     // canonical language identifier in the hook payload.
+    if (!config.trace_calls_path.empty()) {
+      std::string trace_error;
+      const bool supported =
+          (config.target_arch == "arm64" || config.target_arch == "aarch64") &&
+          (RuntimeTargetOS(config) == "darwin" || RuntimeTargetOS(config) == "macos" ||
+           RuntimeTargetOS(config) == "linux") &&
+          config.mode == "link";
+      if (!supported ||
+          !tools::InstrumentNativeCallTrace(*ir_module, config.trace_calls_path, &trace_error)) {
+        diagnostics.ReportError(
+            core::SourceLoc{"<trace>", 1, 1}, frontends::ErrorCode::kUnsupportedLowering,
+            supported ? trace_error
+                      : "--trace-calls requires a native ARM64 Linux/macOS Poly executable");
+        AppendDiagnostics(diagnostics, out.backend_diagnostics);
+        out.success = false;
+        return out;
+      }
+    }
     if (config.profile_instrument) {
       const auto stats = passes::transform::RunInstrumentCallTrace(*ir_module, "poly");
       if (config.verbose) {

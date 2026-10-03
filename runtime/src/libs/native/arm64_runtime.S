@@ -40,6 +40,7 @@ polyrt_open_read:
 
 .globl polyrt_open_write
 polyrt_open_write:
+.Lopen_write:
 #ifdef __APPLE__
   mov x1, #0x601
   mov x2, #0644
@@ -196,6 +197,7 @@ polyrt_write_text:
 
 .globl polyrt_write_i64
 polyrt_write_i64:
+.Lwrite_i64:
   sub sp, sp, #64
   str x30, [sp, #48]
   mov x9, x1
@@ -354,6 +356,165 @@ polyrt_arg_int:
   mov x0, x3
   ret
 .Lempty: .byte 0
+.p2align 2
+// Explicitly enabled, single-threaded foreign CALL tracing. State is owned
+// by the executable, allocated once, and released by the OS at process exit.
+// A failed trace sink is a visible I/O failure (exit 74), never a fake sample.
+.globl polyrt_trace_init
+polyrt_trace_init:
+  stp x19, x20, [sp, #-32]!
+  str x30, [sp, #16]
+  mov x19, x0
+  mov x20, x1
+  ldr x9, [x19]
+  cbnz x9, .Ltrace_init_done
+  mov x0, #0
+  mov x1, #4096
+  mov x2, #3
+#ifdef __APPLE__
+  mov x3, #0x1002
+#else
+  mov x3, #0x22
+#endif
+  mov x4, #-1
+  mov x5, #0
+  SYS(SYS_MMAP)
+#ifdef __APPLE__
+  b.cs .Ltrace_failure
+#else
+  cmn x0, #4095
+  b.cs .Ltrace_failure
+#endif
+  str x0, [x19]
+  mov x0, x20
+  bl .Lopen_write
+  tbnz x0, #63, .Ltrace_failure
+  ldr x9, [x19]
+  str x0, [x9]             // fd, next invocation id, active invocation id
+.Ltrace_init_done:
+  ldr x30, [sp, #16]
+  ldp x19, x20, [sp], #32
+  ret
+
+// record=[site,id,parent,start,end,freq,argc,result,arg0,...]
+.globl polyrt_trace_begin
+polyrt_trace_begin:
+  ldr x9, [x1]
+  cbz x9, .Ltrace_failure
+  ldr x10, [x9, #8]
+  add x10, x10, #1
+  str x10, [x9, #8]
+  ldr x11, [x9, #16]
+  str x10, [x9, #16]
+  stp x2, x10, [x0]
+  str x11, [x0, #16]
+  str x3, [x0, #48]
+  mrs x12, cntfrq_el0
+  str x12, [x0, #40]
+  isb
+  mrs x12, cntvct_el0
+  str x12, [x0, #24]
+  ret
+
+.macro trace_string label
+  mov x0, x21
+  adr x1, \label
+  bl .Ltrace_write_string
+  tbnz x0, #63, .Ltrace_failure
+.endm
+.macro trace_number offset
+  mov x0, x21
+  ldr x1, [x19, #\offset]
+  mov x2, #0
+  bl .Lwrite_i64
+  tbnz x0, #63, .Ltrace_failure
+.endm
+
+.globl polyrt_trace_end
+polyrt_trace_end:
+  isb
+  mrs x9, cntvct_el0
+  str x9, [x0, #32]
+  str x2, [x0, #56]
+  stp x19, x20, [sp, #-48]!
+  stp x21, x22, [sp, #16]
+  stp x23, x30, [sp, #32]
+  mov x19, x0
+  ldr x20, [x1]
+  cbz x20, .Ltrace_failure
+  ldr x9, [x19, #16]
+  str x9, [x20, #16]
+  ldr x21, [x20]
+  trace_string .Ltrace_site
+  trace_number 0
+  trace_string .Ltrace_instance
+  trace_number 8
+  trace_string .Ltrace_parent
+  trace_number 16
+  trace_string .Ltrace_started
+  trace_number 24
+  trace_string .Ltrace_ended
+  trace_number 32
+  trace_string .Ltrace_frequency
+  trace_number 40
+  trace_string .Ltrace_result
+  trace_number 56
+  trace_string .Ltrace_arguments
+  ldr x23, [x19, #48]
+  mov x22, #0
+.Ltrace_arguments_loop:
+  cmp x22, x23
+  b.hs .Ltrace_arguments_done
+  cbz x22, 1f
+  trace_string .Ltrace_comma
+1: trace_string .Ltrace_quote
+  mov x0, x21
+  add x9, x19, #64
+  ldr x1, [x9, x22, lsl #3]
+  mov x2, #0
+  bl .Lwrite_i64
+  tbnz x0, #63, .Ltrace_failure
+  trace_string .Ltrace_quote
+  add x22, x22, #1
+  b .Ltrace_arguments_loop
+.Ltrace_arguments_done:
+  trace_string .Ltrace_finish
+  ldp x23, x30, [sp, #32]
+  ldp x21, x22, [sp, #16]
+  ldp x19, x20, [sp], #48
+  ret
+.Ltrace_write_string:
+  mov x2, #0
+1: ldrb w9, [x1, x2]
+  cbz w9, 2f
+  add x2, x2, #1
+  b 1b
+2: b .Lwrite_all
+.Ltrace_failure:
+  mov x0, #2
+  adr x1, .Ltrace_failure_text
+  mov x2, #(.Ltrace_failure_text_end-.Ltrace_failure_text)
+  SYS(SYS_WRITE)
+  mov x0, #74
+#ifdef __APPLE__
+  SYS(1)
+#else
+  SYS(93)
+#endif
+  brk #0
+.Ltrace_failure_text: .ascii "polyc: native call trace output failed\n"
+.Ltrace_failure_text_end:
+.Ltrace_site: .asciz "{\"schema\":\"polyglot.native-calltrace.v1\",\"site_id\":\""
+.Ltrace_instance: .asciz "\",\"instance_id\":\""
+.Ltrace_parent: .asciz "\",\"parent_instance_id\":\""
+.Ltrace_started: .asciz "\",\"started_ticks\":\""
+.Ltrace_ended: .asciz "\",\"ended_ticks\":\""
+.Ltrace_frequency: .asciz "\",\"ticks_per_second\":\""
+.Ltrace_result: .asciz "\",\"result_bits\":\""
+.Ltrace_arguments: .asciz "\",\"argument_bits\":["
+.Ltrace_quote: .asciz "\""
+.Ltrace_comma: .asciz ","
+.Ltrace_finish: .asciz "]}\n"
 .p2align 2
 .globl polyrt_native_end
 polyrt_native_end:

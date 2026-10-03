@@ -909,3 +909,43 @@ TEST_CASE("C++ lowering rejects unmodeled executable top-level and expression se
     }));
   }
 }
+
+TEST_CASE("C++ foreign primitive signatures match the lowered LP64 ABI",
+          "[cpp][frontend][signatures][native-abi]") {
+  struct Primitive {
+    const char *name;
+    int bits;
+    bool sign;
+  };
+  for (const auto type :
+       {Primitive{"int", 32, true}, Primitive{"long", 64, true}, Primitive{"long long", 64, true},
+        Primitive{"unsigned long", 64, false}, Primitive{"unsigned long long", 64, false},
+        Primitive{"size_t", 64, false}, Primitive{"int64_t", 64, true},
+        Primitive{"uint64_t", 64, false}}) {
+    CAPTURE(type.name);
+    const std::string source =
+        std::string(type.name) + " identity(" + type.name + " value) { return value; }";
+    CppLanguageFrontend frontend;
+    polyglot::frontends::FrontendOptions options;
+    Diagnostics diagnostics;
+    const auto signatures =
+        frontend.ExtractSignatures(source, "<native-abi.cpp>", "fixture", diagnostics, options);
+    REQUIRE_FALSE(diagnostics.HasErrors());
+    REQUIRE(signatures.size() == 1);
+    REQUIRE(signatures[0].param_types.size() == 1);
+    CHECK(signatures[0].param_types[0].bit_width == type.bits);
+    CHECK(signatures[0].param_types[0].is_signed == type.sign);
+    CHECK(signatures[0].return_type == signatures[0].param_types[0]);
+    polyglot::ir::IRContext context;
+    const auto result = frontend.Lower(source, "<native-abi.cpp>", context, diagnostics, options);
+    for (const auto &entry : diagnostics.All())
+      UNSCOPED_INFO(Diagnostics::Format(entry));
+    REQUIRE(result.success);
+    REQUIRE(context.Functions().size() == 1);
+    const auto &function = context.Functions().front();
+    REQUIRE(function->param_types.size() == 1);
+    CHECK(function->param_types[0].BitWidth() == type.bits);
+    CHECK(function->param_types[0].is_signed == type.sign);
+    CHECK(function->ret_type.SameShape(function->param_types[0]));
+  }
+}

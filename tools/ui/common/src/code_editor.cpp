@@ -114,6 +114,8 @@ CodeEditor::CodeEditor(QWidget *parent) : QPlainTextEdit(parent) {
   connect(this, &CodeEditor::cursorPositionChanged, this, [this]() { source_doc_timer_->start(); });
   connect(source_doc_timer_, &QTimer::timeout, this, [this]() {
     if (language_ != "poly" && language_ != "ploy") return;
+    if (runtime_sample_line_ == textCursor().blockNumber() + 1)
+      return;
     const auto cursor = textCursor();
     const auto bytes = toPlainText().left(cursor.position()).toUtf8().size();
     auto target = cross_language::ForeignTargetAt(toPlainText().toStdString(), bytes);
@@ -258,6 +260,13 @@ void CodeEditor::HighlightCurrentLine() {
     extra_selections.append(selection);
   }
 
+  if (runtime_sample_line_ > 0) {
+    QTextEdit::ExtraSelection sample;
+    sample.cursor = QTextCursor(document()->findBlockByNumber(runtime_sample_line_ - 1));
+    sample.format.setBackground(QColor(132, 104, 27, 90));
+    sample.format.setProperty(QTextFormat::FullWidthSelection, true);
+    extra_selections.append(sample);
+  }
   setExtraSelections(extra_selections);
 
   // Preserve current-line highlight and add bracket pairs on top.
@@ -968,7 +977,13 @@ void CodeEditor::RequestSignatureHelpAtCursor() {
 // ============================================================================
 
 void CodeEditor::SetDiagnostics(const std::vector<DiagnosticInfo> &diagnostics) {
-  diagnostics_ = diagnostics;
+  diagnostics_.clear();
+  for (const auto &diagnostic : diagnostics) {
+    if (diagnostic.source_file.empty() || file_path_.isEmpty() ||
+        QFileInfo(QString::fromStdString(diagnostic.source_file)).absoluteFilePath() ==
+            QFileInfo(file_path_).absoluteFilePath())
+      diagnostics_.push_back(diagnostic);
+  }
   viewport()->update(); // trigger repaint
 }
 
@@ -1391,6 +1406,21 @@ bool CodeEditor::InlineDefinitionVisible() const {
   return inline_definition_ && !inline_definition_->isHidden();
 }
 
+void CodeEditor::ShowRuntimeSample(int line, const QString &summary) {
+  runtime_sample_line_ = line;
+  source_doc_timer_->stop();
+  HideInlineDefinition();
+  centerCursor();
+  setToolTip(summary.toHtmlEscaped());
+  HighlightCurrentLine();
+}
+
+void CodeEditor::ClearRuntimeSample() {
+  runtime_sample_line_ = 0;
+  setToolTip({});
+  HighlightCurrentLine();
+}
+
 void CodeEditor::LayoutInlineDefinition() {
   if (!InlineDefinitionVisible()) return;
   const int panel_height = qMin(285, height() / 2);
@@ -1457,8 +1487,14 @@ void CodeEditor::ShowInlineDefinition(const cross_language::FunctionDocumentatio
   const QString signature = QString::fromStdString(definition.signature).toHtmlEscaped();
   const QString documentation = definition.documentation.empty() ?
       tr("No documentation comment in source.") : QString::fromStdString(definition.documentation);
-  inline_doc_->setHtml("<b>" + signature + "</b><p style='white-space:pre-wrap'>" +
-                      documentation.toHtmlEscaped().replace("\n", "<br>") + "</p>");
+  const QString resolved =
+      definition.compiler_signature.empty()
+          ? QString::fromStdString(definition.type_resolution_note).toHtmlEscaped()
+          : tr("Compiler types: %1")
+                .arg(QString::fromStdString(definition.compiler_signature).toHtmlEscaped());
+  inline_doc_->setHtml("<b>" + signature + "</b><p>" + resolved +
+                       "</p><p style='white-space:pre-wrap'>" +
+                       documentation.toHtmlEscaped().replace("\n", "<br>") + "</p>");
   inline_source_->setPlainText(QString::fromStdString(definition.source_preview));
   // One highlighter per preview document; replacing it is safe on language changes.
   for (auto *child : inline_source_->document()->findChildren<SyntaxHighlighter *>()) delete child;

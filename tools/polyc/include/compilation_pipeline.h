@@ -379,6 +379,15 @@ struct CompilationContext {
     bool strict_mode{false};
     bool force{false};
     bool profile_instrument{false};
+    std::string trace_calls_path;
+    struct ModuleBuildRecord {
+      std::string language;
+      std::string source;
+      std::string object;
+      double elapsed_ms{0.0};
+      bool success{false};
+    };
+    mutable std::vector<ModuleBuildRecord> module_builds;
     std::string aux_dir;
     bool package_index{false};
     int package_index_timeout_ms{30000};

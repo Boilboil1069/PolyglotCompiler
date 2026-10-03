@@ -206,6 +206,26 @@ std::shared_ptr<TypeNode> CppParser::ParseType() {
     auto simple = std::make_shared<SimpleType>();
     simple->loc = current_.loc;
     std::string name = ParseQualifiedName();
+    // Fundamental types can span several keyword tokens. Keep one canonical
+    // spelling for the shared type map used by lowering and signature scans.
+    if (name == "signed" || name == "unsigned") {
+      if (current_.kind == frontends::TokenKind::kKeyword &&
+          (current_.lexeme == "char" || current_.lexeme == "short" || current_.lexeme == "int" ||
+           current_.lexeme == "long")) {
+        name += " " + current_.lexeme;
+        Consume();
+      }
+    }
+    if (name == "long" || name == "signed long" || name == "unsigned long") {
+      if (MatchKeyword("long"))
+        name += " long";
+      else if (name == "long" && MatchKeyword("double"))
+        name = "long double";
+      if (name != "long double")
+        MatchKeyword("int");
+    } else if (name == "short" || name == "signed short" || name == "unsigned short") {
+      MatchKeyword("int");
+    }
     is_placeholder_auto = name == "auto";
     if (IsSymbol("<")) {
       int depth = 0;

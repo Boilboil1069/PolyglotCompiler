@@ -176,35 +176,13 @@ core::Type CppTypeToCore(const std::shared_ptr<TypeNode> &tn) {
     return core::Type::Void();
 
   if (auto st = std::dynamic_pointer_cast<SimpleType>(tn)) {
-    const std::string &n = st->name;
-    if (n == "void")
-      return core::Type::Void();
-    if (n == "bool")
-      return core::Type::Bool();
-    if (n == "int" || n == "int32_t" || n == "long")
-      return core::Type::Int(32, true);
-    if (n == "unsigned" || n == "uint32_t" || n == "unsigned int")
-      return core::Type::Int(32, false);
-    if (n == "int64_t" || n == "long long" || n == "size_t")
-      return core::Type::Int(64, true);
-    if (n == "uint64_t" || n == "unsigned long long")
-      return core::Type::Int(64, false);
-    if (n == "int8_t" || n == "char" || n == "signed char")
-      return core::Type::Int(8, true);
-    if (n == "uint8_t" || n == "unsigned char")
-      return core::Type::Int(8, false);
-    if (n == "int16_t" || n == "short")
-      return core::Type::Int(16, true);
-    if (n == "uint16_t" || n == "unsigned short")
-      return core::Type::Int(16, false);
-    if (n == "float")
-      return core::Type::Float(32);
-    if (n == "double")
-      return core::Type::Float(64);
-    if (n == "string" || n == "std::string")
-      return core::Type::String();
-    // Class / struct / unknown type
-    return core::Type{core::TypeKind::kClass, n, "cpp"};
+    // Use the exact primitive map consumed by C++ lowering. A separate
+    // signature table previously described LP64 long as i32 and size_t as
+    // signed, causing cross-language ABI casts to truncate valid values.
+    const auto mapped = core::TypeSystem().MapFromLanguage("cpp", st->name);
+    if (mapped.kind != core::TypeKind::kStruct)
+      return mapped;
+    return core::Type{core::TypeKind::kClass, st->name, "cpp"};
   }
   if (auto pt = std::dynamic_pointer_cast<PointerType>(tn)) {
     return core::Type{core::TypeKind::kPointer, "ptr", "cpp"};

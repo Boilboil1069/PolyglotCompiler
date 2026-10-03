@@ -954,17 +954,19 @@ MAP_FUNC identity(x: i32) -> i32 {
     REQUIRE(ir.find("__ploy_mapfunc_identity") != std::string::npos);
 }
 
-TEST_CASE("Poly lowering rejects integer-to-float CONVERT without a numeric cast opcode",
-          "[poly][lowering][complex][unsupported]") {
-    Diagnostics diags;
-    std::string ir = LowerAndGetIR(R"(
+TEST_CASE("Poly lowering emits numeric integer-to-float CONVERT",
+          "[poly][lowering][complex][numeric-cast]") {
+  Diagnostics diags;
+  std::string ir = LowerAndGetIR(R"(
 FUNC test(x: i32) -> void {
     LET y = CONVERT(x, f64);
     RETURN;
 }
-)", diags);
-    CHECK(ir.empty());
-    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
+)",
+                                 diags);
+  CHECK_FALSE(ir.empty());
+  CHECK_FALSE(diags.HasErrors());
+  CHECK(ir.find("sitofp") != std::string::npos);
 }
 
 TEST_CASE("Poly lowering preserves explicit primitive widths and signedness",
@@ -3926,4 +3928,76 @@ FUNC main() { LET r = f(); }
         if (std::isdigit(static_cast<unsigned char>(c))) { has_digit = true; break; }
     }
     CHECK(has_digit);
+}
+
+TEST_CASE("Native foreign calls cast to the authoritative parameter ABI before tracing",
+          "[poly][lowering][numeric-cast][native]") {
+  using polyglot::core::Type;
+  using namespace polyglot::ir;
+  Diagnostics diags;
+  auto module = Parse(R"(
+IMPORT cpp::numeric;
+FUNC promote(signed_value: i64, unsigned_value: u32) -> f64 {
+    RETURN CALL(cpp, numeric::combine, signed_value, unsigned_value);
+}
+)",
+                      diags);
+  REQUIRE(module);
+  PloySema sema(diags, PloySemaOptions{});
+  FunctionSignature signature;
+  signature.name = "numeric::combine";
+  signature.language = "cpp";
+  signature.param_types = {Type::Float(32), Type::Float(64)};
+  signature.param_names = {"single_value", "double_value"};
+  signature.return_type = Type::Float(64);
+  signature.param_count = 2;
+  signature.param_count_known = true;
+  signature.validated = true;
+  sema.InjectForeignSignatures({{signature.name, signature}});
+  REQUIRE(sema.Analyze(module));
+  IRContext context;
+  PloyLowering lowering(context, diags, sema);
+  REQUIRE(lowering.Lower(module));
+  REQUIRE_FALSE(diags.HasErrors());
+  std::vector<CastInstruction *> casts;
+  CallInstruction *foreign = nullptr;
+  for (const auto &function : context.Functions())
+    for (const auto &block : function->blocks)
+      for (const auto &instruction : block->instructions) {
+        if (auto *cast = dynamic_cast<CastInstruction *>(instruction.get()))
+          casts.push_back(cast);
+        if (auto *call = dynamic_cast<CallInstruction *>(instruction.get());
+            call && call->callee == "numeric::combine")
+          foreign = call;
+      }
+  REQUIRE(casts.size() == 2);
+  CHECK(casts[0]->cast == CastInstruction::CastKind::kSiToFp);
+  CHECK(casts[1]->cast == CastInstruction::CastKind::kUiToFp);
+  REQUIRE(foreign != nullptr);
+  CHECK(foreign->operands == std::vector<std::string>{casts[0]->name, casts[1]->name});
+  REQUIRE(foreign->trace_argument_types.size() == 2);
+  CHECK(foreign->trace_argument_types[0].kind == IRTypeKind::kF32);
+  CHECK(foreign->trace_argument_types[1].kind == IRTypeKind::kF64);
+}
+
+TEST_CASE("Poly float-to-integer CONVERT remains an explicit unsupported operation",
+          "[poly][lowering][numeric-cast][unsupported]") {
+  Diagnostics diags;
+  const auto text = LowerAndGetIR(R"(
+FUNC truncate(value: f64) -> i64 { RETURN CONVERT(value, i64); }
+)",
+                                  diags);
+  CHECK(text.empty());
+  CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
+}
+
+TEST_CASE("Poly floating negation preserves negative zero by flipping the sign bit",
+          "[poly][lowering][numeric-cast]") {
+  Diagnostics diags;
+  const auto text = LowerAndGetIR("FUNC negate(value: f64) -> f64 { RETURN -value; }", diags);
+  REQUIRE_FALSE(text.empty());
+  CHECK_FALSE(diags.HasErrors());
+  CHECK(text.find("9223372036854775808") != std::string::npos);
+  CHECK(text.find("xor") != std::string::npos);
+  CHECK(text.find("fsub") == std::string::npos);
 }

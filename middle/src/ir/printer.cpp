@@ -105,6 +105,10 @@ std::string CastToString(CastInstruction::CastKind kind) {
     return "fpext";
   case CastInstruction::CastKind::kFpTrunc:
     return "fptrunc";
+  case CastInstruction::CastKind::kSiToFp:
+    return "sitofp";
+  case CastInstruction::CastKind::kUiToFp:
+    return "uitofp";
   case CastInstruction::CastKind::kIntToPtr:
     return "inttoptr";
   case CastInstruction::CastKind::kPtrToInt:

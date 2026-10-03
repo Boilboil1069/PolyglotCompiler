@@ -54,3 +54,5 @@ tests/samples/*/*.json
 !scripts\package_macos.sh
 
 scripts/dist/*
+!examples/order_risk_analyzer/run.sh
+!examples/order_risk_analyzer/test.sh

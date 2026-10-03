@@ -66,6 +66,8 @@ int main(int argc, char *argv[]) {
 
   ApplyWorkspaceCli(&window, opts);
   window.show();
+  if (opts.ui_trace_smoke)
+    return RunRuntimeTraceSmoke(&window, opts);
   if (opts.ui_smoke) return RunWorkspaceSmoke(&window, opts);
   if (opts.headless && !opts.screenshot.isEmpty()) {
     return HandleScreenshotCli(&window, opts.screenshot);

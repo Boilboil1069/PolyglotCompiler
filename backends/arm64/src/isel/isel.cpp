@@ -1,3 +1,4 @@
+#include <stdexcept>
 /**
  * @file     isel.cpp
  * @brief    AArch64 code generation implementation
@@ -254,6 +255,9 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
       }
 
       if (auto *cast = dynamic_cast<ir::CastInstruction *>(inst_ptr.get())) {
+        if (cast->cast == ir::CastInstruction::CastKind::kSiToFp ||
+            cast->cast == ir::CastInstruction::CastKind::kUiToFp)
+          throw std::runtime_error("integer-to-float conversion requires the ARM64 native emitter");
         MachineInstr mi;
         mi.opcode = Opcode::kMov;
         add_use_if_vreg(mi, cast->operands[0]);

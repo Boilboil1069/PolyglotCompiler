@@ -20,16 +20,16 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPainterPathStroker>
 #include <QPen>
 #include <QProcess>
+#include <QResizeEvent>
 #include <QScrollBar>
 #include <QSettings>
 #include <QTextStream>
-#include <QToolTip>
 #include <QToolButton>
-#include <QPainterPathStroker>
+#include <QToolTip>
 #include <QWheelEvent>
-#include <QResizeEvent>
 #include <algorithm>
 #include <cmath>
 #include <deque>
@@ -49,6 +49,8 @@
 #include "tools/polytopo/include/topology_graph.h"
 #include "tools/polytopo/include/topology_printer.h"
 #include "tools/polytopo/include/topology_validator.h"
+#include "tools/ui/common/cross_language/poly_workspace_analysis.h"
+#include "tools/ui/common/include/native_trace_panel.h"
 #include "tools/ui/common/include/topology_panel.h"
 
 namespace polyglot::tools::ui {
@@ -216,6 +218,8 @@ void TopoPortItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event) {
     }
   }
 
+  if (!runtime_value_.isEmpty())
+    tip += "<br><b>Recorded sample:</b> " + runtime_value_.toHtmlEscaped();
   QToolTip::showText(event->screenPos(), tip);
 
   // Visual feedback: enlarge on hover
@@ -402,6 +406,38 @@ void TopoNodeItem::SetSourceLocation(const QString &file, int line) {
   source_line_ = line;
 }
 
+void TopoNodeItem::SetRuntimeSample(const runtime::NativeTraceSample *sample) {
+  runtime_caption_.clear();
+  if (sample)
+    runtime_caption_ = QString("RECORDED #%1 · %2 µs")
+                           .arg(QString::fromStdString(sample->instance_id))
+                           .arg(static_cast<double>(sample->duration_ns / 1000.0L), 0, 'f', 3);
+  const auto update_ports = [&](auto &ports, auto &labels, bool output) {
+    for (std::size_t index = 0; index < ports.size(); ++index) {
+      const runtime::NativeTraceValue *value = nullptr;
+      if (sample)
+        value = output ? &sample->result
+                       : (index < sample->arguments.size() ? &sample->arguments[index] : nullptr);
+      QString text = ports[index]->PortName() + ": " + ports[index]->TypeName();
+      QString recorded;
+      if (value) {
+        recorded = value->available ? QString::fromStdString(value->display)
+                                    : QStringLiteral("unavailable");
+        text += "  = " + recorded;
+        if (!value->available)
+          recorded += ": " + QString::fromStdString(value->unavailable_reason);
+      }
+      ports[index]->SetRuntimeValue(recorded);
+      labels[index].label->setPlainText(text);
+      labels[index].label->setDefaultTextColor(sample ? QColor("#fde68a") : QColor(Qt::white));
+    }
+  };
+  update_ports(input_ports_, input_labels_, false);
+  update_ports(output_ports_, output_labels_, true);
+  LayoutPorts();
+  update();
+}
+
 QVariant TopoNodeItem::itemChange(GraphicsItemChange change, const QVariant &value) {
   if (change == ItemPositionHasChanged) {
     // Notify the panel or drill-down window so that edges connected
@@ -454,6 +490,8 @@ void TopoNodeItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opti
   painter->setRenderHint(QPainter::Antialiasing);
   QColor accent = LanguageColor(language_);
   QPen border(isSelected() ? QColor("#a5b4fc") : QColor("#35445d"), isSelected() ? 2.5 : 1.2);
+  if (!runtime_caption_.isEmpty())
+    border = QPen(QColor("#fde68a"), 2.5);
   if (highlight_error_) border = QPen(QColor("#f87171"), 2.5);
   if (debug_active_) border = QPen(QColor(255, 215, 95, int(255 * pulse_opacity_)), 3);
   painter->setPen(border);
@@ -473,6 +511,10 @@ void TopoNodeItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opti
   QString context = language_.toUpper() + "  ·  " + kind_;
   if (source_line_ > 0) context += "  ·  L" + QString::number(source_line_);
   if (expandable_) context += "  ·  open flow ↗";
+  if (!runtime_caption_.isEmpty()) {
+    context = runtime_caption_;
+    painter->setPen(QColor("#fde68a"));
+  }
   painter->drawText(QRectF(24, 33, rect().width() - 36, 17), context);
   painter->setPen(QPen(QColor("#2a3a53"), 1));
   painter->drawLine(QPointF(12, kNodeHeaderHeight - 5), QPointF(rect().width() - 12, kNodeHeaderHeight - 5));
@@ -931,6 +973,15 @@ void TopologyPanel::SetupUI() {
   diagnostics_output_->setReadOnly(true);
   diagnostics_output_->setMaximumBlockCount(500);
   inspector_tabs_->addTab(diagnostics_output_, "Diagnostics");
+  trace_panel_ = new NativeTracePanel(right_panel);
+  inspector_tabs_->addTab(trace_panel_, "Runtime samples");
+  connect(trace_panel_, &NativeTracePanel::SampleSelected, this,
+          [this]() { UpdateRuntimeOverlay(); });
+  connect(trace_panel_, &NativeTracePanel::OverlayChanged, this,
+          [this]() { UpdateRuntimeOverlay(); });
+  connect(trace_panel_, &NativeTracePanel::TraceError, this, [this](const QString &message) {
+    diagnostics_output_->appendPlainText("[Runtime trace] " + message);
+  });
 
   splitter_->addWidget(right_panel);
   splitter_->setSizes({840, 245});
@@ -1437,36 +1488,14 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
 
   std::string filename = path.toStdString();
 
-  // Parse
-  frontends::Diagnostics diagnostics;
-  ploy::PloyLexer lexer(source, filename);
-  ploy::PloyParser parser(lexer, diagnostics);
-  parser.ParseModule();
-  auto module = parser.TakeModule();
-
-  if (!module || diagnostics.HasErrors()) {
-    diagnostics_output_->appendPlainText("Parse failed for " + path);
-    for (const auto &diagnostic : diagnostics.All())
-      diagnostics_output_->appendPlainText(QString::fromStdString(frontends::Diagnostics::Format(diagnostic)));
+  auto analysis = cross_language::AnalyzePolyWorkspace(source, filename);
+  for (const auto &diagnostic : analysis->diagnostics.All())
+    diagnostics_output_->appendPlainText(
+        QString::fromStdString(frontends::Diagnostics::Format(diagnostic)));
+  if (!analysis->module || !analysis->sema)
     return;
-  }
-
-  // Sema
-  ploy::PloySemaOptions sema_opts;
-  sema_opts.enable_package_discovery = false;
-  sema_opts.strict_mode = false;
-  ploy::PloySema sema(diagnostics, sema_opts);
-  sema.Analyze(module);
-
-  // Foreign signature extraction — read real types from external source files
-  {
-    tools::ForeignExtractionOptions feopts;
-    feopts.base_directory = std::filesystem::path(filename).parent_path().string();
-    tools::ForeignSignatureExtractor extractor(feopts);
-    auto foreign_sigs = extractor.ExtractAll(*module);
-    if (!foreign_sigs.empty())
-      sema.InjectForeignSignatures(foreign_sigs);
-  }
+  auto &module = analysis->module;
+  auto &sema = *analysis->sema;
 
   // Build topology
   topo::TopologyAnalyzer analyzer(sema);
@@ -1514,6 +1543,8 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
     // Store source location for debug mapping
     const auto &location = node.definition_loc.file.empty() ? node.loc : node.definition_loc;
     item->SetSourceLocation(QString::fromStdString(location.file), static_cast<int>(location.line));
+    item->SetCallLocation(QString::fromStdString(node.loc.file), static_cast<int>(node.loc.line),
+                          static_cast<int>(node.loc.column));
     item->SetDescription(QString::fromStdString(node.description) + "\nCall/source: " +
                          QString::fromStdString(node.loc.file) + ":" + QString::number(node.loc.line));
 
@@ -1632,6 +1663,7 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
   status_label_->setText(QString("%1 cards · %2 connections · %3")
                              .arg(cards).arg(wires).arg(QFileInfo(path).fileName()));
   status_label_->setToolTip(path);
+  UpdateRuntimeOverlay(false);
 }
 
 // ============================================================================
@@ -1644,6 +1676,28 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
 // simulation must invoke RefreshEdgePositions() separately.
 //
 namespace {
+
+// Bulk placement routes edges once after all cards have moved. Individual
+// dragging still sends geometry notifications after this scope restores flags.
+class ScopedNodePlacement {
+public:
+  explicit ScopedNodePlacement(const std::unordered_map<uint64_t, TopoNodeItem *> &nodes) {
+    notifications_.reserve(nodes.size());
+    for (const auto &[id, node] : nodes) {
+      Q_UNUSED(id);
+      const bool enabled = node->flags().testFlag(QGraphicsItem::ItemSendsGeometryChanges);
+      notifications_.emplace_back(node, enabled);
+      node->setFlag(QGraphicsItem::ItemSendsGeometryChanges, false);
+    }
+  }
+  ~ScopedNodePlacement() {
+    for (const auto &[node, enabled] : notifications_)
+      node->setFlag(QGraphicsItem::ItemSendsGeometryChanges, enabled);
+  }
+
+private:
+  std::vector<std::pair<TopoNodeItem *, bool>> notifications_;
+};
 
 // Stable ordering: sort node ids ascending so that two runs of the same
 // algorithm on the same input always produce identical layouts.  This is what
@@ -1936,6 +1990,7 @@ void LayoutBfsTree(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
 } // namespace
 
 void TopologyPanel::LayoutNodes() {
+  ScopedNodePlacement placement(node_items_);
   layout_mode_ = layout_combo_ ? static_cast<LayoutMode>(layout_combo_->currentIndex())
                                : LayoutMode::kHierarchical;
 
@@ -2018,6 +2073,7 @@ void TopologyPanel::StopForceLayout() {
 }
 
 void TopologyPanel::OnForceLayoutTick() {
+  ScopedNodePlacement placement(node_items_);
   if (force_iterations_remaining_ <= 0 || node_items_.size() < 2) {
     StopForceLayout();
     RefreshEdgePositions();
@@ -2159,6 +2215,77 @@ void TopologyPanel::RefreshEdgePositions() {
   }
 }
 
+bool TopologyPanel::BeginTraceSession(const QString &path, bool follow) {
+  RevealInspector();
+  inspector_tabs_->setCurrentWidget(trace_panel_);
+  if (splitter_->orientation() == Qt::Vertical)
+    splitter_->setSizes({std::max(180, splitter_->height() - 290), 290});
+  const bool loaded = trace_panel_->BeginSession(path, follow);
+  UpdateRuntimeOverlay();
+  return loaded;
+}
+
+void TopologyPanel::FinishTraceSession() {
+  trace_panel_->FinishSession();
+}
+
+void TopologyPanel::UpdateRuntimeOverlay(bool navigate) {
+  for (auto &[id, node] : node_items_) {
+    Q_UNUSED(id);
+    node->SetRuntimeSample(nullptr);
+  }
+  emit RuntimeOverlayCleared();
+  const auto *sample = trace_panel_ ? trace_panel_->SelectedSample() : nullptr;
+  if (!sample || !trace_panel_->OverlayEnabled()) {
+    RefreshEdgePositions();
+    return;
+  }
+  const auto *site = trace_panel_->Trace().Site(sample->site_id);
+  if (!site)
+    return;
+  auto source_path = QFileInfo(QString::fromStdString(site->file)).canonicalFilePath();
+  if (source_path.isEmpty())
+    source_path = QFileInfo(QString::fromStdString(site->file)).absoluteFilePath();
+  QString qualified = QString::fromStdString(site->callee);
+  const auto prefix = QString::fromStdString(site->language) + "::";
+  if (!qualified.startsWith(prefix))
+    qualified.prepend(prefix);
+  TopoNodeItem *matched = nullptr;
+  for (auto &[id, node] : node_items_) {
+    Q_UNUSED(id);
+    auto path = QFileInfo(node->CallFile()).canonicalFilePath();
+    if (path.isEmpty())
+      path = QFileInfo(node->CallFile()).absoluteFilePath();
+    if (path == source_path && node->CallLine() == site->line &&
+        node->CallColumn() == site->column && node->NodeName() == qualified) {
+      if (matched) {
+        matched = nullptr;
+        break;
+      } // Ambiguous source cards cannot own one sample.
+      matched = node;
+    }
+  }
+  if (matched) {
+    matched->SetRuntimeSample(sample);
+    view_->centerOn(matched);
+  }
+  RefreshEdgePositions();
+  QStringList arguments;
+  for (const auto &value : sample->arguments)
+    arguments << QString::fromStdString(value.name) + "=" +
+                     (value.available ? QString::fromStdString(value.display) : tr("unavailable"));
+  const auto summary =
+      tr("Recorded #%1 · %2(%3) → %4 · %5 µs%6")
+          .arg(QString::fromStdString(sample->instance_id), qualified, arguments.join(", "),
+               sample->result.available ? QString::fromStdString(sample->result.display)
+                                        : tr("unavailable"))
+          .arg(static_cast<double>(sample->duration_ns / 1000.0L), 0, 'f', 3)
+          .arg(matched ? QString{} : tr(" · source card not matched"));
+  if (navigate)
+    emit RuntimeSampleSelected(QString::fromStdString(site->file), site->line, site->column,
+                               summary);
+}
+
 void TopologyPanel::UpdateDetailsPanel(uint64_t node_id) {
   RevealInspector();
   if (inspector_tabs_) inspector_tabs_->setCurrentIndex(0);
@@ -2209,7 +2336,9 @@ void TopologyPanel::UpdateEdgeDetails(TopoEdgeItem *edge) {
   auto *root = new QTreeWidgetItem(details_tree_, {"VALUE CONNECTION", edge->FlowLabel()});
   new QTreeWidgetItem(root, {"Status", edge->Status()});
   new QTreeWidgetItem(root, {"From → to", edge->FlowDetail()});
-  new QTreeWidgetItem(root, {"Meaning", "Static value dependency; runtime values are not recorded"});
+  new QTreeWidgetItem(
+      root,
+      {"Meaning", "Static value dependency. Recorded invocations are shown in Runtime samples."});
   details_tree_->expandAll();
 }
 
@@ -2232,18 +2361,11 @@ void TopologyPanel::OnValidate() {
   std::string source((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
   ifs.close();
 
-  frontends::Diagnostics diagnostics;
-  ploy::PloyLexer lexer(source, current_file_.toStdString());
-  ploy::PloyParser parser(lexer, diagnostics);
-  parser.ParseModule();
-  auto module = parser.TakeModule();
-  if (!module)
+  auto analysis = cross_language::AnalyzePolyWorkspace(source, current_file_.toStdString());
+  if (!analysis->module || !analysis->sema)
     return;
-
-  ploy::PloySemaOptions sema_opts;
-  sema_opts.enable_package_discovery = false;
-  ploy::PloySema sema(diagnostics, sema_opts);
-  sema.Analyze(module);
+  auto &module = analysis->module;
+  auto &sema = *analysis->sema;
 
   topo::TopologyAnalyzer analyzer(sema);
   analyzer.Build(module);
@@ -2252,8 +2374,11 @@ void TopologyPanel::OnValidate() {
   topo::TopologyValidator validator(val_opts);
   validator.Validate(analyzer.Graph());
 
-  // Display diagnostics
+  // Display every compiler diagnostic alongside topology validation.
   diagnostics_output_->clear();
+  for (const auto &diagnostic : analysis->diagnostics.All())
+    diagnostics_output_->appendPlainText(
+        QString::fromStdString(frontends::Diagnostics::Format(diagnostic)));
   for (const auto &d : validator.Diagnostics()) {
     QString severity;
     switch (d.severity) {
@@ -2300,18 +2425,11 @@ void TopologyPanel::OnExportDot() {
   std::string source((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
   ifs.close();
 
-  frontends::Diagnostics diagnostics;
-  ploy::PloyLexer lexer(source, current_file_.toStdString());
-  ploy::PloyParser parser(lexer, diagnostics);
-  parser.ParseModule();
-  auto module = parser.TakeModule();
-  if (!module)
+  auto analysis = cross_language::AnalyzePolyWorkspace(source, current_file_.toStdString());
+  if (!analysis->module || !analysis->sema)
     return;
-
-  ploy::PloySemaOptions sema_opts;
-  sema_opts.enable_package_discovery = false;
-  ploy::PloySema sema(diagnostics, sema_opts);
-  sema.Analyze(module);
+  auto &module = analysis->module;
+  auto &sema = *analysis->sema;
 
   topo::TopologyAnalyzer analyzer(sema);
   analyzer.Build(module);
@@ -2339,18 +2457,11 @@ void TopologyPanel::OnExportJson() {
   std::string source((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
   ifs.close();
 
-  frontends::Diagnostics diagnostics;
-  ploy::PloyLexer lexer(source, current_file_.toStdString());
-  ploy::PloyParser parser(lexer, diagnostics);
-  parser.ParseModule();
-  auto module = parser.TakeModule();
-  if (!module)
+  auto analysis = cross_language::AnalyzePolyWorkspace(source, current_file_.toStdString());
+  if (!analysis->module || !analysis->sema)
     return;
-
-  ploy::PloySemaOptions sema_opts;
-  sema_opts.enable_package_discovery = false;
-  ploy::PloySema sema(diagnostics, sema_opts);
-  sema.Analyze(module);
+  auto &module = analysis->module;
+  auto &sema = *analysis->sema;
 
   topo::TopologyAnalyzer analyzer(sema);
   analyzer.Build(module);
@@ -3381,6 +3492,7 @@ void DrillDownWindow::PopulateScene() {
     const TopoNodeItem *src = it->second;
     auto *item = new TopoNodeItem(src->NodeId(), src->NodeName(), src->Language(), src->Kind());
     item->SetSourceLocation(src->SourceFile(), src->SourceLine());
+    item->SetCallLocation(src->CallFile(), src->CallLine(), src->CallColumn());
     item->SetDefinitionTarget(src->DefinitionSymbol(), src->DefinitionContext());
     item->SetDescription(src->Description());
 
@@ -3433,6 +3545,7 @@ void DrillDownWindow::PopulateScene() {
 }
 
 void DrillDownWindow::LayoutDrillDownNodes() {
+  ScopedNodePlacement placement(node_items_);
   if (node_items_.empty()) {
     RefreshEdgePositions();
     return;
@@ -3533,6 +3646,7 @@ void DrillDownWindow::StopForceLayout() {
 }
 
 void DrillDownWindow::OnForceLayoutTick() {
+  ScopedNodePlacement placement(node_items_);
   if (force_iterations_remaining_ <= 0 || node_items_.size() < 2) {
     StopForceLayout();
     RefreshEdgePositions();

@@ -101,6 +101,15 @@ struct CallInstruction : Instruction {
   IRType callee_type{IRType::Invalid()}; // optional function type annotation
   bool is_vararg{false};
   bool is_tail_call{false}; // Tail call optimization flag
+  // Source provenance for explicitly requested native cross-language tracing.
+  // Empty language means this call is outside the traced boundary.
+  std::string trace_language;
+  std::string trace_callee;
+  std::string trace_file;
+  std::size_t trace_line{0};
+  std::size_t trace_column{0};
+  std::vector<std::string> trace_argument_names;
+  std::vector<IRType> trace_argument_types;
 };
 
 /** @brief AllocaInstruction data structure. */
@@ -124,7 +133,18 @@ struct StoreInstruction : Instruction {
 /** @brief CastInstruction data structure. */
 struct CastInstruction : Instruction {
   /** @brief CastKind enumeration. */
-  enum class CastKind { kZExt, kSExt, kTrunc, kBitcast, kFpExt, kFpTrunc, kIntToPtr, kPtrToInt };
+  enum class CastKind {
+    kZExt,
+    kSExt,
+    kTrunc,
+    kBitcast,
+    kFpExt,
+    kFpTrunc,
+    kSiToFp,
+    kUiToFp,
+    kIntToPtr,
+    kPtrToInt
+  };
   CastKind cast{CastKind::kBitcast};
 };
 

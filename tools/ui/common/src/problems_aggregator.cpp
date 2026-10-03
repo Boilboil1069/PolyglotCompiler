@@ -64,7 +64,8 @@ void ProblemsAggregator::Replace(const std::string &file, const std::string &sou
       // Make sure stored entries carry the (file, source) coordinates so
       // a downstream consumer never has to re-derive them.
       for (auto &e : entries) {
-        e.file = file;
+        if (e.file.empty())
+          e.file = file;
         e.source = source;
       }
       slices_[file][source] = std::move(entries);
@@ -81,6 +82,7 @@ void ProblemsAggregator::ReplaceFromDiagnosticInfo(
   entries.reserve(diags.size());
   for (const auto &d : diags) {
     ProblemEntry e;
+    e.file = d.source_file;
     e.severity = ClassifySeverity(d.severity);
     e.line = d.line;
     e.column = d.column;

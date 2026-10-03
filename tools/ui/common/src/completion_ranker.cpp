@@ -67,7 +67,8 @@ int ScoreSubsequence(std::string_view label, std::string_view needle) {
       // Base reward.
       score += 10;
       // Adjacency bonus.
-      if (last_matched) score += 8;
+      if (last_matched)
+        score += 16;
       // Word-boundary bonus.
       if (IsWordBoundary(prev, l)) score += 12;
       // Position bonus (earlier matches favoured).
@@ -89,6 +90,8 @@ int ScoreSubsequence(std::string_view label, std::string_view needle) {
 
 /// Fuzzy: subsequence with a one-character typo tolerated per needle.
 int ScoreFuzzy(std::string_view label, std::string_view needle) {
+  if (needle.empty())
+    return 0;
   // Try clean subsequence first.
   int direct = ScoreSubsequence(label, needle);
   if (direct >= 0) return direct + 5;  // tiny bonus for clean match

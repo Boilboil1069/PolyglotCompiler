@@ -26,6 +26,7 @@
 
 #include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/language_frontend.h"
+#include "tools/ui/common/cross_language/poly_workspace_analysis.h"
 #include "tools/ui/common/include/compiler_service.h"
 
 // Poly frontend (needed for completion provider)
@@ -43,9 +44,12 @@
 // up empty (no languages available for tokenization / analysis).
 #include "frontends/cpp/include/cpp_frontend.h"
 #include "frontends/dotnet/include/dotnet_frontend.h"
+#include "frontends/go/include/go_frontend.h"
 #include "frontends/java/include/java_frontend.h"
+#include "frontends/javascript/include/javascript_frontend.h"
 #include "frontends/ploy/include/ploy_frontend.h"
 #include "frontends/python/include/python_frontend.h"
+#include "frontends/ruby/include/ruby_frontend.h"
 #include "frontends/rust/include/rust_frontend.h"
 
 // Common sema context for non-poly frontends
@@ -224,6 +228,9 @@ CompilerService::CompilerService() {
   reg.Register(std::make_shared<polyglot::rust::RustLanguageFrontend>());
   reg.Register(std::make_shared<polyglot::java::JavaLanguageFrontend>());
   reg.Register(std::make_shared<polyglot::dotnet::DotnetLanguageFrontend>());
+  reg.Register(std::make_shared<polyglot::go::GoLanguageFrontend>());
+  reg.Register(std::make_shared<polyglot::javascript::JsLanguageFrontend>());
+  reg.Register(std::make_shared<polyglot::ruby::RubyLanguageFrontend>());
 }
 CompilerService::~CompilerService() = default;
 
@@ -331,6 +338,7 @@ std::vector<DiagnosticInfo> CompilerService::ConvertDiagnostics(
   std::vector<DiagnosticInfo> result;
   for (const auto &d : diags.All()) {
     DiagnosticInfo info;
+    info.source_file = d.loc.file;
     info.line = d.loc.line;
     info.column = d.loc.column;
     info.end_line = d.loc.line;
@@ -372,6 +380,10 @@ std::vector<DiagnosticInfo> CompilerService::ConvertDiagnostics(
 std::vector<DiagnosticInfo> CompilerService::Analyze(const std::string &source,
                                                      const std::string &language,
                                                      const std::string &filename) const {
+  if (CanonicalLanguageId(language) == "poly") {
+    auto analysis = cross_language::AnalyzePolyWorkspace(source, filename);
+    return ConvertDiagnostics(analysis->diagnostics);
+  }
   frontends::Diagnostics diags;
 
   // Use FrontendRegistry for unified dispatch
@@ -392,7 +404,7 @@ std::vector<DiagnosticInfo> CompilerService::Analyze(const std::string &source,
 
 CompileResult CompilerService::Compile(const std::string &source, const std::string &language,
                                        const std::string &filename, const std::string &target_arch,
-                                       int opt_level) const {
+                                       int opt_level, const std::string &trace_file) const {
   CompileResult result;
   auto start = std::chrono::high_resolution_clock::now();
 
@@ -403,7 +415,12 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
   frontends::Diagnostics      diags;
   auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(
       CanonicalLanguageId(language));
-  if (fe) {
+  if (CanonicalLanguageId(language) == "poly") {
+    frontends::FrontendOptions opts;
+    opts.token_pool = &pool;
+    auto analysis = cross_language::AnalyzePolyWorkspace(source, filename, true, opts);
+    diags.Append(analysis->diagnostics);
+  } else if (fe) {
     frontends::FrontendOptions opts;
     opts.strict     = false;
     opts.token_pool = &pool;
@@ -455,12 +472,13 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
   result.output_file = out_path.string();
 
   std::ostringstream cmd;
-  cmd << ShellQuote(ResolvePolycExecutable()) << " "
-      << ShellQuote(input_path.string()) << " "
+  cmd << ShellQuote(ResolvePolycExecutable()) << " " << ShellQuote(input_path.string()) << " "
       << ShellQuote("-O" + std::to_string(std::clamp(opt_level, 0, 3))) << " "
-      << ShellQuote(TargetArgument(target_arch)) << " "
-      << ShellQuote(LanguageArgument(language)) << " "
-      << "-o " << ShellQuote(out_path.string()) << " 2>&1";
+      << ShellQuote(TargetArgument(target_arch)) << " " << ShellQuote(LanguageArgument(language))
+      << " ";
+  if (!trace_file.empty())
+    cmd << ShellQuote("--trace-calls=" + trace_file) << " ";
+  cmd << "-o " << ShellQuote(out_path.string()) << " 2>&1";
 
   const CommandResult command_result = RunCommandCapture(cmd.str());
   result.success = (command_result.exit_code == 0);
@@ -1159,6 +1177,40 @@ std::vector<cross_language::FunctionDocumentation> CompilerService::InspectSymbo
       if (!file) continue;
       std::ostringstream text; text << file.rdbuf();
       collect(text.str(), target->language, path);
+    }
+    if (!result.empty()) {
+      auto analysis = AnalyzePolyWorkspace(source, current_file);
+      const auto signature = analysis->foreign_signatures.find(target->qualified_symbol);
+      for (auto &doc : result) {
+        if (signature == analysis->foreign_signatures.end()) {
+          doc.type_resolution_note = "Compiler signature unresolved; inspect project diagnostics.";
+          continue;
+        }
+        // Source previews may use an edited foreign buffer. Until saved, the
+        // compiler's disk-based package bundle must not claim those new types.
+        if (auto open = buffers.find(doc.location.file); open != buffers.end()) {
+          std::ifstream disk(doc.location.file);
+          const std::string saved((std::istreambuf_iterator<char>(disk)),
+                                  std::istreambuf_iterator<char>());
+          if (saved != open->second.second) {
+            doc.type_resolution_note =
+                "Foreign source has unsaved edits; save to refresh compiler types.";
+            continue;
+          }
+        }
+        const auto &resolved = signature->second;
+        std::ostringstream abi;
+        abi << resolved.language << "::" << target->qualified_symbol << "(";
+        for (std::size_t index = 0; index < resolved.param_types.size(); ++index) {
+          if (index)
+            abi << ", ";
+          abi << (index < resolved.param_names.size() ? resolved.param_names[index]
+                                                      : "arg" + std::to_string(index))
+              << ": " << CompilerTypeName(resolved.param_types[index]);
+        }
+        abi << ") -> " << CompilerTypeName(resolved.return_type);
+        doc.compiler_signature = abi.str();
+      }
     }
   } else {
     collect(source, canonical, current_file);

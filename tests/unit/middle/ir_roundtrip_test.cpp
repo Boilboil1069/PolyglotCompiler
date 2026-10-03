@@ -47,3 +47,25 @@ entry:
   std::string err;
   REQUIRE_FALSE(ParseFunction(bad, ctx, nullptr, &err));
 }
+
+TEST_CASE("Integer to float casts survive IR roundtrip and validate types",
+          "[ir][parser][printer][numeric-cast]") {
+  const std::string text = R"(func convert()
+entry:
+  value = const_bits 9007199254740993 : i64
+  signed_float = sitofp value : f32
+  unsigned_double = uitofp value : f64
+  ret unsigned_double : f64
+)";
+  IRContext ctx;
+  std::string error;
+  REQUIRE(ParseFunction(text, ctx, nullptr, &error));
+  const auto &function = *ctx.Functions().back();
+  CHECK(Dump(function) == text);
+  REQUIRE(Verify(function, &ctx.Layout(), &error));
+  auto cast = dynamic_cast<CastInstruction *>(function.blocks[0]->instructions[1].get());
+  REQUIRE(cast != nullptr);
+  cast->type = IRType::I32();
+  CHECK_FALSE(Verify(function, &ctx.Layout(), &error));
+  CHECK(error.find("require integer source and float destination") != std::string::npos);
+}

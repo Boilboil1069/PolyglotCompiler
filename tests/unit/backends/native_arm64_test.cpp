@@ -102,6 +102,61 @@ TEST_CASE("ARM64 phi copies retain loop-carried values", "[backends][arm64][nati
 #endif
 }
 
+TEST_CASE("ARM64 aggregate GEP follows pointer, aligned field and array indices",
+          "[backends][arm64][native][gep]") {
+#if defined(__aarch64__) && (defined(__APPLE__) || defined(__linux__))
+  struct Record {
+    std::uint8_t flag;
+    std::int64_t total;
+    std::int32_t items[3];
+  };
+  struct Records {
+    std::uint8_t prefix;
+    Record records[2];
+  };
+  for (auto strategy : {RegAllocStrategy::kStack, RegAllocStrategy::kLinearScan,
+                        RegAllocStrategy::kGraphColoring}) {
+    IRContext context;
+    IRBuilder builder(context);
+    auto record = IRType::Struct(
+        "Record", {IRType::I8(false), IRType::I64(), IRType::Array(IRType::I32(), 3)});
+    auto records = IRType::Struct("Records", {IRType::I8(false), IRType::Array(record, 2)});
+    REQUIRE(context.Layout().SizeOf(record) == sizeof(Record));
+    REQUIRE(context.Layout().SizeOf(records) == sizeof(Records));
+    auto fn = builder.CreateFunction("update_record", IRType::I64(),
+                                     {{"base", IRType::Pointer(records)}});
+    builder.SetCurrentFunction(fn);
+    builder.SetInsertPoint(builder.CreateBlock("entry"));
+    auto total = builder.MakeGEP("base", records, {0, 1, 1, 1});
+    auto item = builder.MakeGEP("base", IRType::Pointer(records), {0, 1, 1, 2, 1});
+    auto flag = builder.MakeGEP("base", records, {0, 1, 1, 0});
+    builder.MakeStore(total->name, "91");
+    builder.MakeStore(item->name, "-7");
+    builder.MakeStore(flag->name, "3");
+    auto loaded_total = builder.MakeLoad(total->name, IRType::I64());
+    auto loaded_item = builder.MakeLoad(item->name, IRType::I32());
+    auto signed_item =
+        builder.MakeCast(CastInstruction::CastKind::kSExt, loaded_item->name, IRType::I64());
+    auto sum = builder.MakeBinary(BinaryInstruction::Op::kAdd, loaded_total->name,
+                                  signed_item->name, "sum");
+    builder.MakeReturn(sum->name);
+    Executable code(context, strategy);
+    auto update = code.Function<std::int64_t (*)(Records *)>("update_record");
+    Records data{11, {{17, 19, {23, 29, 31}}, {37, 41, {43, 47, 53}}}};
+    CHECK(update(&data) == 84);
+    CHECK(data.prefix == 11);
+    CHECK(data.records[0].total == 19);
+    CHECK(data.records[1].flag == 3);
+    CHECK(data.records[1].total == 91);
+    CHECK(data.records[1].items[0] == 43);
+    CHECK(data.records[1].items[1] == -7);
+    CHECK(data.records[1].items[2] == 53);
+  }
+#else
+  SUCCEED("native execution requires ARM64 POSIX");
+#endif
+}
+
 TEST_CASE("ARM64 numeric printing preserves signed boundaries and IEEE values", "[backends][arm64][native]") {
 #if defined(__aarch64__) && (defined(__APPLE__) || defined(__linux__))
   IRContext context; IRBuilder builder(context);
@@ -121,6 +176,54 @@ TEST_CASE("ARM64 numeric printing preserves signed boundaries and IEEE values", 
     print_float(std::numeric_limits<double>::infinity()); print_float(std::numeric_limits<double>::quiet_NaN());
   });
   CHECK(text == "-9223372036854775808\n0\n9223372036854775807\n0x1.8000000000000p+0\n-0x0.0000000000000p+0\n0x0.0000000000001p-1022\ninf\nnan\n");
+#else
+  SUCCEED("native execution requires ARM64 POSIX");
+#endif
+}
+
+TEST_CASE("ARM64 integer-to-float casts preserve signedness and IEEE rounding",
+          "[backends][arm64][native][numeric-cast]") {
+#if defined(__aarch64__) && (defined(__APPLE__) || defined(__linux__))
+  for (auto strategy : {RegAllocStrategy::kStack, RegAllocStrategy::kLinearScan,
+                        RegAllocStrategy::kGraphColoring}) {
+    for (bool sign : {true, false})
+      for (bool wide : {true, false}) {
+        IRContext context;
+        IRBuilder builder(context);
+        auto source = wide ? IRType::I64() : IRType::I32();
+        source.is_signed = sign;
+        for (bool single : {true, false}) {
+          auto destination = single ? IRType::F32() : IRType::F64();
+          auto fn = builder.CreateFunction(single ? "to_float" : "to_double", destination,
+                                           {{"input", source}});
+          builder.SetCurrentFunction(fn);
+          builder.SetInsertPoint(builder.CreateBlock("entry"));
+          auto cast = builder.MakeCast(sign ? CastInstruction::CastKind::kSiToFp
+                                            : CastInstruction::CastKind::kUiToFp,
+                                       "input", destination, "converted");
+          builder.MakeReturn(cast->name);
+        }
+        Executable code(context, strategy);
+        auto to_float = code.Function<float (*)(std::uint64_t)>("to_float");
+        auto to_double = code.Function<double (*)(std::uint64_t)>("to_double");
+        for (std::uint64_t input :
+             {0ULL, 1ULL, 16777217ULL, 9007199254740993ULL, 0x7fffffffULL, 0x80000000ULL,
+              0xffffffffULL, 0x7fffffffffffffffULL, 0x8000000000000000ULL, 0xffffffffffffffffULL}) {
+          CAPTURE(sign, wide, input);
+          if (sign) {
+            const auto value = wide ? static_cast<std::int64_t>(input)
+                                    : static_cast<std::int64_t>(static_cast<std::int32_t>(input));
+            CHECK(to_float(input) == static_cast<float>(value));
+            CHECK(to_double(input) == static_cast<double>(value));
+          } else {
+            const auto value =
+                wide ? input : static_cast<std::uint64_t>(static_cast<std::uint32_t>(input));
+            CHECK(to_float(input) == static_cast<float>(value));
+            CHECK(to_double(input) == static_cast<double>(value));
+          }
+        }
+      }
+  }
 #else
   SUCCEED("native execution requires ARM64 POSIX");
 #endif

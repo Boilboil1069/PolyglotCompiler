@@ -1,11 +1,13 @@
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <memory>
 #include <string>
 
 #include "middle/include/ir/cfg.h"
 #include "middle/include/ir/nodes/statements.h"
-#include "middle/include/passes/transform/advanced_optimizations.h"
 #include "middle/include/ir/passes/opt.h"
+#include "middle/include/ir/verifier.h"
+#include "middle/include/passes/transform/advanced_optimizations.h"
 
 using namespace polyglot::ir;
 using namespace polyglot::passes::transform;
@@ -998,4 +1000,45 @@ TEST_CASE("Typed constant folding keeps widths and exact float bits", "[opt][reg
         CHECK(dynamic_cast<BinaryInstruction *>(entry->instructions[0].get()));
         CHECK(dynamic_cast<BinaryInstruction *>(entry->instructions[1].get()));
     }
+}
+
+TEST_CASE("CFG canonicalization retains phi values through folded and merged blocks",
+          "[middle][cfg][regression]") {
+  Function function = CreateFuncWithEntry("fold_and_merge");
+  function.params.push_back("choose_left");
+  function.param_types.push_back(IRType::I1());
+  auto *left = function.CreateBlock("left");
+  auto *right = function.CreateBlock("right");
+  auto *forward = function.CreateBlock("forward");
+  auto *unreachable = function.CreateBlock("unreachable");
+  auto *merge = function.CreateBlock("merge");
+  function.entry->SetTerminator(MakeCondBr("choose_left", left, right));
+  left->SetTerminator(MakeCondBr("1", forward, unreachable));
+  auto forward_branch = std::make_shared<BranchStatement>();
+  forward_branch->target = merge;
+  forward->SetTerminator(forward_branch);
+  auto right_branch = std::make_shared<BranchStatement>();
+  right_branch->target = merge;
+  right->SetTerminator(right_branch);
+  unreachable->SetTerminator(MakeRet("999"));
+  auto phi = std::make_shared<PhiInstruction>();
+  phi->name = "result";
+  phi->type = IRType::I64();
+  phi->incomings = {{forward, "41"}, {right, "73"}};
+  merge->AddPhi(phi);
+  merge->SetTerminator(MakeRet("result"));
+  passes::CanonicalizeCFG(function);
+  std::string error;
+  REQUIRE(Verify(function, &error));
+  REQUIRE(phi->incomings.size() == 2);
+  CHECK(phi->incomings[0].second == "41");
+  CHECK(phi->incomings[1].second == "73");
+  for (const auto &[block, value] : phi->incomings)
+    CHECK(std::any_of(function.blocks.begin(), function.blocks.end(),
+                      [&](const auto &owned) { return owned.get() == block; }));
+  // Running the pass twice must preserve the remaining conditional edge values.
+  passes::CanonicalizeCFG(function);
+  REQUIRE(Verify(function, &error));
+  REQUIRE(phi->incomings.size() == 2);
+  CHECK(phi->incomings[0].second != phi->incomings[1].second);
 }

@@ -375,9 +375,10 @@ bool IsNativeFileRuntimeSymbol(const std::string &name) {
   return name == kFileOpenReadSymbol || name == kFileNextIntSymbol ||
          name == kFileCloseReadSymbol || name == kFileOpenWriteSymbol ||
          name == kFileWriteTextSymbol || name == kFileWriteIntSymbol ||
-         name == "polyrt_array_new" || name == "polyrt_array_len" ||
-         name == "polyrt_array_get" || name == "polyrt_array_set" ||
-         name == "polyrt_array_free" || name == "polyrt_arg_text" || name == "polyrt_arg_int";
+         name == "polyrt_array_new" || name == "polyrt_array_len" || name == "polyrt_array_get" ||
+         name == "polyrt_array_set" || name == "polyrt_array_free" || name == "polyrt_arg_text" ||
+         name == "polyrt_arg_int" || name == "polyrt_trace_init" || name == "polyrt_trace_begin" ||
+         name == "polyrt_trace_end";
 }
 
 } // namespace polyglot::runtime

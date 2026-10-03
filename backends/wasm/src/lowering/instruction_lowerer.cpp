@@ -1,3 +1,4 @@
+#include <stdexcept>
 /**
  * @file     instruction_lowerer.cpp
  * @brief    IR instruction → WASM bytecode lowering
@@ -241,6 +242,9 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
   if (auto *cast = dynamic_cast<ir::CastInstruction *>(inst.get())) {
     using CK = ir::CastInstruction::CastKind;
     switch (cast->cast) {
+    case CK::kSiToFp:
+    case CK::kUiToFp:
+      throw std::runtime_error("WASM integer-to-float conversion is not implemented");
     case CK::kZExt:
     case CK::kIntToPtr:
       body.push_back(kOpI64ExtendI32U);

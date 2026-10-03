@@ -6,36 +6,40 @@
  * @ingroup  Tool / polyui
  * @author   Manning Cyrus
  */
-#include "tools/ui/common/include/polyui_cli.h"
-
 #include <QApplication>
+#include <QCheckBox>
 #include <QColor>
+#include <QContextMenuEvent>
+#include <QDir>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QFileSystemModel>
-#include <QTreeView>
-#include <QDir>
+#include <QGraphicsTextItem>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonArray>
+#include <QMenu>
 #include <QPalette>
 #include <QPixmap>
+#include <QSettings>
 #include <QStyleFactory>
-#include <QWidget>
-#include <QContextMenuEvent>
-#include <QMenu>
+#include <QTemporaryDir>
 #include <QTextBrowser>
 #include <QTimer>
-#include <QSettings>
-#include <QTemporaryDir>
-#include <memory>
+#include <QTreeView>
+#include <QWidget>
 #include <iostream>
+#include <memory>
 
 #include "common/include/version.h"
-#include "tools/ui/common/include/mainwindow.h"
 #include "tools/ui/common/include/code_editor.h"
+#include "tools/ui/common/include/mainwindow.h"
+#include "tools/ui/common/include/native_trace_panel.h"
+#include "tools/ui/common/include/polyui_cli.h"
 #include "tools/ui/common/include/settings_service.h"
 #include "tools/ui/common/include/theme_service.h"
+#include "tools/ui/common/include/topology_panel.h"
 
 namespace polyglot::tools::ui {
 
@@ -55,6 +59,12 @@ PolyUiCliOptions ParsePolyUiArgs(int argc, char *argv[]) {
       o.workspace_view = QString::fromLocal8Bit(argv[++i]);
     } else if (a == "--peek" && i + 1 < argc) {
       o.peek_symbol = QString::fromLocal8Bit(argv[++i]);
+    } else if (a == "--ui-trace-smoke") {
+      o.ui_trace_smoke = true;
+    } else if (a == "--run-args" && i + 1 < argc) {
+      o.run_arguments = QString::fromLocal8Bit(argv[++i]);
+    } else if (a == "--trace-file" && i + 1 < argc) {
+      o.trace_file = QString::fromLocal8Bit(argv[++i]);
     } else if (a == "--ui-smoke") {
       o.ui_smoke = true;
     } else if (a == "--theme" && i + 1 < argc) {
@@ -82,6 +92,10 @@ void PrintPolyUiUsage() {
             << "  --peek <symbol>            Preview a function in the source editor\n"
             << "  --ui-smoke                 Verify inline docs and right-click navigation\n"
             << "                             (requires --headless --file --peek)\n"
+            << "  --ui-trace-smoke           Verify real Compile & Run trace, source and ports\n"
+            << "                             (requires --headless --file; program must exit 0)\n"
+            << "  --run-args <arguments>     Program arguments for --ui-trace-smoke\n"
+            << "  --trace-file <path>        Inspect an existing JSONL session instead of running\n"
             << "  --version, -v              Print version information and exit\n"
             << "  --help, -h                 Show this help message and exit\n"
             << "\n"
@@ -329,6 +343,119 @@ int RunWorkspaceSmoke(MainWindow *window, const PolyUiCliOptions &options) {
   QJsonObject report{{"inlineDocumentation", true}, {"sourcePreview", true},
                      {"contextMenuDefinition", true}, {"target", QString::fromStdString(expected.file)},
                      {"line", expected.line}, {"column", expected.column}};
+  std::cout << QJsonDocument(report).toJson(QJsonDocument::Compact).toStdString() << '\n';
+  return 0;
+}
+
+int RunRuntimeTraceSmoke(MainWindow *window, const PolyUiCliOptions &options) {
+  if (!window || !options.headless || options.initial_file.isEmpty()) {
+    std::cerr << "polyui: --ui-trace-smoke requires --headless --file\n";
+    return 2;
+  }
+  auto *topology = window->findChild<TopologyPanel *>();
+  if (!topology)
+    return 3;
+  QApplication::processEvents();
+  if (options.trace_file.isEmpty()) {
+    window->RunWorkspaceDocument(true, options.run_arguments);
+    QElapsedTimer timeout;
+    timeout.start();
+    while (window->IsProgramRunning() && timeout.elapsed() < 60000)
+      QApplication::processEvents(QEventLoop::AllEvents, 20);
+    if (window->IsProgramRunning() || window->LastRunExitCode() != 0) {
+      std::cerr << "polyui trace smoke: native program failed or timed out; exit="
+                << window->LastRunExitCode() << '\n';
+      return 4;
+    }
+  } else {
+    window->SetWorkspaceView("split");
+    topology->LoadFromFile(options.initial_file);
+    if (!topology->BeginTraceSession(options.trace_file, false))
+      return 5;
+  }
+  auto *panel = topology->TracePanel();
+  if (!panel || !panel->Error().isEmpty() || panel->Trace().Samples().empty()) {
+    std::cerr << "polyui trace smoke: missing or invalid actual samples: "
+              << (panel ? panel->Error().toStdString() : "panel missing") << '\n';
+    return 6;
+  }
+  std::size_t mapped = 0;
+  for (const auto &[id, site] : panel->Trace().Sites()) {
+    Q_UNUSED(id);
+    QString qualified = QString::fromStdString(site.callee);
+    const auto prefix = QString::fromStdString(site.language) + "::";
+    if (!qualified.startsWith(prefix))
+      qualified.prepend(prefix);
+    int matches = 0;
+    for (const auto &[node_id, node] : topology->NodeItems()) {
+      Q_UNUSED(node_id);
+      if (QFileInfo(node->CallFile()).canonicalFilePath() ==
+              QFileInfo(QString::fromStdString(site.file)).canonicalFilePath() &&
+          node->CallLine() == site.line && node->CallColumn() == site.column &&
+          node->NodeName() == qualified)
+        ++matches;
+    }
+    if (matches == 1)
+      ++mapped;
+  }
+  if (mapped != panel->Trace().Sites().size()) {
+    std::cerr << "polyui trace smoke: only " << mapped << '/' << panel->Trace().Sites().size()
+              << " compiler call sites map to exactly one static card\n";
+    return 7;
+  }
+  auto *toggle = panel->findChild<QCheckBox *>("runtimeOverlayToggle");
+  if (!toggle)
+    return 8;
+  toggle->setChecked(false);
+  bool static_restored = true;
+  for (const auto &[id, node] : topology->NodeItems()) {
+    Q_UNUSED(id);
+    for (auto *port : node->InputPorts())
+      static_restored &= port->RuntimeValue().isEmpty();
+    for (auto *port : node->OutputPorts())
+      static_restored &= port->RuntimeValue().isEmpty();
+  }
+  toggle->setChecked(true);
+  panel->SelectSample(0);
+  QApplication::processEvents();
+  const auto *sample = panel->SelectedSample();
+  const auto *site = sample ? panel->Trace().Site(sample->site_id) : nullptr;
+  if (!sample || !site)
+    return 9;
+  bool source_highlighted = false, ports_have_values = false;
+  for (auto *editor : window->findChildren<CodeEditor *>()) {
+    if (editor->isVisible() && editor->RuntimeSampleLine() == site->line &&
+        QFileInfo(editor->FilePath()).canonicalFilePath() ==
+            QFileInfo(QString::fromStdString(site->file)).canonicalFilePath())
+      source_highlighted = true;
+  }
+  for (const auto &[id, node] : topology->NodeItems()) {
+    Q_UNUSED(id);
+    if (node->CallLine() != site->line || node->CallColumn() != site->column)
+      continue;
+    for (auto *port : node->OutputPorts())
+      ports_have_values |= !port->RuntimeValue().isEmpty();
+  }
+  if (!static_restored || !source_highlighted || !ports_have_values) {
+    std::cerr << "polyui trace smoke: source/port association or overlay toggle failed\n";
+    return 10;
+  }
+  if (!options.screenshot.isEmpty() && HandleScreenshotCli(window, options.screenshot) != 0)
+    return 11;
+  QJsonObject report{{"realRuntimeSamples", true},
+                     {"compiledAndRan", options.trace_file.isEmpty()},
+                     {"exitCode", options.trace_file.isEmpty()
+                                      ? QJsonValue(window->LastRunExitCode())
+                                      : QJsonValue(QJsonValue::Null)},
+                     {"sampleCount", static_cast<qint64>(panel->Trace().Samples().size())},
+                     {"mappedCallSites", static_cast<qint64>(mapped)},
+                     {"sourceHighlight", source_highlighted},
+                     {"portValues", ports_have_values},
+                     {"overlayOffRestoresStatic", static_restored},
+                     {"instanceId", QString::fromStdString(sample->instance_id)},
+                     {"target", QString::fromStdString(site->file)},
+                     {"line", site->line},
+                     {"column", site->column}};
   std::cout << QJsonDocument(report).toJson(QJsonDocument::Compact).toStdString() << '\n';
   return 0;
 }

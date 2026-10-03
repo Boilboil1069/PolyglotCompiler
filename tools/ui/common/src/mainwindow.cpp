@@ -14,12 +14,11 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
-#include <QInputDialog>
 #include <QHBoxLayout>
-#include <QVBoxLayout>
-#include <QPushButton>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QPalette>
+#include <QPushButton>
 #include <QSettings>
 #include <QShortcut>
 #include <QStyle>
@@ -29,6 +28,7 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QToolTip>
+#include <QVBoxLayout>
 
 #include "common/include/plugins/plugin_manager.h"
 #include "common/include/version.h"
@@ -45,12 +45,13 @@
 #include "tools/ui/common/include/lsp_bridge.h"
 #include "tools/ui/common/include/mainwindow.h"
 #include "tools/ui/common/include/markdown_viewer.h"
+#include "tools/ui/common/include/native_trace_panel.h"
 #include "tools/ui/common/include/output_panel.h"
 #include "tools/ui/common/include/panel_manager.h"
-#include "tools/ui/common/include/profile_session.h"
-#include "tools/ui/common/include/profiler_panel.h"
 #include "tools/ui/common/include/problems_aggregator.h"
 #include "tools/ui/common/include/problems_panel.h"
+#include "tools/ui/common/include/profile_session.h"
+#include "tools/ui/common/include/profiler_panel.h"
 #include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/settings_page.h"
 #include "tools/ui/common/include/settings_service.h"
@@ -664,9 +665,37 @@ void MainWindow::SetupToolBar() {
   main_toolbar_->addSeparator();
 
   main_toolbar_->addAction(action_compile_);
-  main_toolbar_->addAction(action_compile_run_);
   main_toolbar_->addAction(action_analyze_);
-  main_toolbar_->addAction(action_stop_);
+  addToolBarBreak();
+  auto *run_toolbar = addToolBar(tr("Run and trace"));
+  run_toolbar->setObjectName("runtimeToolbar");
+  run_toolbar->setMovable(false);
+  run_toolbar->setStyleSheet(
+      tm.ToolBarStylesheet() +
+      "QToolButton:checked { background:#315574; border:1px solid #75bfff; border-radius:4px; }");
+  run_toolbar->addAction(action_compile_run_);
+  run_toolbar->addAction(action_stop_);
+  run_toolbar->addSeparator();
+  action_trace_calls_ = run_toolbar->addAction(tr("Trace CALLs"));
+  action_trace_calls_->setObjectName("traceCallsAction");
+  action_trace_calls_->setCheckable(true);
+  action_trace_calls_->setToolTip(tr("Record real foreign CALL arguments, returns and time on the "
+                                     "next Compile & Run. Disabled runs omit instrumentation."));
+  run_arguments_ = new QLineEdit();
+  run_arguments_->setObjectName("programArguments");
+  run_arguments_->setPlaceholderText(tr("Program arguments, for example data/orders.csv"));
+  run_arguments_->setMinimumWidth(260);
+  run_arguments_->setStyleSheet(tm.LineEditStylesheet());
+  run_toolbar->addWidget(run_arguments_);
+  auto *load_trace = run_toolbar->addAction(tr("Open trace…"));
+  connect(load_trace, &QAction::triggered, this, [this]() {
+    const auto path = QFileDialog::getOpenFileName(this, tr("Open recorded native trace"), {},
+                                                   tr("Trace records (*.jsonl);;All files (*)"));
+    if (!path.isEmpty()) {
+      SetWorkspaceView("split");
+      topology_panel_->BeginTraceSession(path, false);
+    }
+  });
 
   activity_toolbar_ = new QToolBar(tr("Workspace"), this);
   activity_toolbar_->setObjectName("activityToolbar");
@@ -698,6 +727,8 @@ void MainWindow::SetupStatusBar() {
 
   status_message_ = new QLabel("Ready");
   status_message_->setObjectName("workspaceStatusMessage");
+  status_message_->setMinimumWidth(0);
+  status_message_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   sb->addWidget(status_message_, 1);
 
   // Problems counter — clickable label showing aggregated severity
@@ -1012,6 +1043,20 @@ void MainWindow::SetupConnections() {
     const auto &target = docs[static_cast<std::size_t>(selected)].location;
     NavigateToSource(QString::fromStdString(target.file), target.line, target.column);
   });
+
+  connect(topology_panel_, &TopologyPanel::RuntimeOverlayCleared, this, [this]() {
+    for (int tab = 0; tab < editor_tabs_->count(); ++tab)
+      if (auto *editor = EditorAt(tab))
+        editor->ClearRuntimeSample();
+  });
+  connect(topology_panel_, &TopologyPanel::RuntimeSampleSelected, this,
+          [this](const QString &file, int line, int column, const QString &summary) {
+            NavigateToSource(file, line, column);
+            if (auto *editor = CurrentEditor())
+              editor->ShowRuntimeSample(line, summary);
+            status_message_->setText(summary);
+            status_message_->setToolTip(summary);
+          });
 
   // Topology panel: open generated .poly file in editor
   connect(topology_panel_, &TopologyPanel::OpenFileRequested, this,
@@ -2126,6 +2171,7 @@ void MainWindow::Compile() {
 
   output_panel_->ClearAll();
   output_panel_->ShowOutputTab();
+  bottom_tabs_->setCurrentWidget(output_panel_);
 
   std::string source = editor->toPlainText().toStdString();
   std::string language = it->second.language.toStdString();
@@ -2168,6 +2214,12 @@ void MainWindow::Compile() {
   polyglot::plugins::PluginManager::Instance().FireBuildFinished(result.success ? 0 : 1);
 }
 
+void MainWindow::RunWorkspaceDocument(bool trace, const QString &arguments) {
+  action_trace_calls_->setChecked(trace);
+  run_arguments_->setText(arguments);
+  CompileAndRun();
+}
+
 void MainWindow::CompileAndRun() {
   CodeEditor *editor = CurrentEditor();
   if (!editor)
@@ -2183,9 +2235,27 @@ void MainWindow::CompileAndRun() {
   if (it == tab_info_.end())
     return;
 
+  last_run_exit_code_ = -1;
+  active_trace_file_.clear();
+  const bool tracing = action_trace_calls_ && action_trace_calls_->isChecked();
+  if (tracing) {
+    trace_session_directory_ = std::make_unique<QTemporaryDir>();
+    if (!trace_session_directory_->isValid()) {
+      status_message_->setText(tr("Cannot create a runtime trace session directory"));
+      return;
+    }
+    active_trace_file_ = trace_session_directory_->filePath("calls.jsonl");
+  }
+  if (topology_panel_->TracePanel())
+    topology_panel_->TracePanel()->ClearSession();
+  for (int tab = 0; tab < editor_tabs_->count(); ++tab)
+    if (auto *open = EditorAt(tab))
+      open->ClearRuntimeSample();
+
   // First, compile
   output_panel_->ClearAll();
   output_panel_->ShowOutputTab();
+  bottom_tabs_->setCurrentWidget(output_panel_);
 
   std::string source = editor->toPlainText().toStdString();
   std::string language = it->second.language.toStdString();
@@ -2205,7 +2275,8 @@ void MainWindow::CompileAndRun() {
                                   .arg(target_combo_->currentText())
                                   .arg(opt));
 
-  auto result = compiler_service_->Compile(source, language, filename, target, opt);
+  auto result = compiler_service_->Compile(source, language, filename, target, opt,
+                                           active_trace_file_.toStdString());
 
   output_panel_->AppendOutput(QString::fromStdString(result.output));
   output_panel_->AppendOutput(
@@ -2263,6 +2334,16 @@ void MainWindow::CompileAndRun() {
   }
 
   last_compiled_binary_ = binary_path;
+  if (tracing) {
+    SetWorkspaceView("split");
+    topology_panel_->LoadFromFile(QString::fromStdString(filename));
+    if (!topology_panel_->BeginTraceSession(active_trace_file_)) {
+      output_panel_->AppendOutput("[Trace] " + topology_panel_->TracePanel()->Error());
+      action_stop_->setEnabled(false);
+      action_compile_run_->setEnabled(true);
+      return;
+    }
+  }
 
   // Clean up any previous run process
   if (run_process_) {
@@ -2285,6 +2366,9 @@ void MainWindow::CompileAndRun() {
 
   connect(run_process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
           [this](int exit_code, QProcess::ExitStatus exit_status) {
+            last_run_exit_code_ = exit_code;
+            if (!active_trace_file_.isEmpty())
+              topology_panel_->FinishTraceSession();
             QString status_str = (exit_status == QProcess::CrashExit)
                                      ? "crashed"
                                      : QString("exited with code %1").arg(exit_code);
@@ -2318,6 +2402,8 @@ void MainWindow::CompileAndRun() {
       msg = "Unknown error";
       break;
     }
+    if (!active_trace_file_.isEmpty())
+      topology_panel_->FinishTraceSession();
     output_panel_->AppendOutput("[Error] " + msg);
     status_message_->setText("Run error: " + msg);
     action_stop_->setEnabled(false);
@@ -2329,7 +2415,7 @@ void MainWindow::CompileAndRun() {
   debug_panel_->SetWorkingDirectory(source_dir);
 
   output_panel_->AppendOutput("\n>>> Running: " + binary_path + "\n");
-  run_process_->start(binary_path, QStringList());
+  run_process_->start(binary_path, QProcess::splitCommand(run_arguments_->text()));
 }
 
 void MainWindow::AnalyzeCode() {
@@ -2349,7 +2435,8 @@ void MainWindow::AnalyzeCode() {
   if (filename_qt.startsWith("* ")) {
     filename_qt = filename_qt.mid(2);
   }
-  std::string filename = filename_qt.toStdString();
+  std::string filename = it->second.file_path.isEmpty() ? filename_qt.toStdString()
+                                                        : it->second.file_path.toStdString();
 
   auto diagnostics = compiler_service_->Analyze(source, language, filename);
 
@@ -2956,7 +3043,8 @@ void MainWindow::OnAnalysisTimerTimeout() {
   if (filename_qt.startsWith("* ")) {
     filename_qt = filename_qt.mid(2);
   }
-  std::string filename = filename_qt.toStdString();
+  std::string filename = it->second.file_path.isEmpty() ? filename_qt.toStdString()
+                                                        : it->second.file_path.toStdString();
 
   auto diagnostics = compiler_service_->Analyze(source, language, filename);
   ShowDiagnostics(diagnostics, it->second.file_path, QStringLiteral("polyc-frontend"));
@@ -3296,6 +3384,13 @@ void MainWindow::ApplyTheme() {
   if (main_toolbar_) {
     main_toolbar_->setStyleSheet(tm.ToolBarStylesheet());
   }
+
+  if (auto *toolbar = findChild<QToolBar *>("runtimeToolbar"))
+    toolbar->setStyleSheet(
+        tm.ToolBarStylesheet() +
+        "QToolButton:checked { background:#315574; border:1px solid #75bfff; border-radius:4px; }");
+  if (run_arguments_)
+    run_arguments_->setStyleSheet(tm.LineEditStylesheet());
 
   // Status bar
   statusBar()->setStyleSheet(tm.StatusBarStylesheet());

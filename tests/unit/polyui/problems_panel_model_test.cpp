@@ -258,3 +258,21 @@ TEST_CASE("ReplaceFromDiagnosticInfo converts UI struct to ProblemEntry",
   REQUIRE(snap[0].file == "/a.poly");
   REQUIRE(snap[0].source == "polyls:poly");
 }
+
+TEST_CASE("Imported source diagnostics keep their file and are cleared with the owning document",
+          "[problems][diagnostic_info]") {
+  ProblemsAggregator aggregator;
+  DiagnosticInfo diagnostic;
+  diagnostic.source_file = "/project/pricing.cpp";
+  diagnostic.line = 7;
+  diagnostic.column = 3;
+  diagnostic.severity = "error";
+  diagnostic.message = "invalid foreign function";
+  aggregator.ReplaceFromDiagnosticInfo("/project/main.poly", "polyc", {diagnostic});
+  const auto snapshot = aggregator.Snapshot(ProblemFilter{});
+  REQUIRE(snapshot.size() == 1);
+  CHECK(snapshot[0].file == "/project/pricing.cpp");
+  CHECK(snapshot[0].line == 7);
+  aggregator.ReplaceFromDiagnosticInfo("/project/main.poly", "polyc", {});
+  CHECK(aggregator.Snapshot(ProblemFilter{}).empty());
+}

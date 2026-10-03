@@ -247,6 +247,11 @@ bool CheckCast(const CastInstruction &cast, const IRType &src, std::string *msg)
     if (!dst.CanLosslesslyConvertTo(src))
       return Fail("fptrunc must narrow", msg);
     return true;
+  case CastInstruction::CastKind::kSiToFp:
+  case CastInstruction::CastKind::kUiToFp:
+    if (!src.IsInteger() || !dst.IsFloat())
+      return Fail("sitofp/uitofp require integer source and float destination", msg);
+    return true;
   case CastInstruction::CastKind::kIntToPtr:
     if (!src.IsInteger())
       return Fail("inttoptr requires integer source", msg);

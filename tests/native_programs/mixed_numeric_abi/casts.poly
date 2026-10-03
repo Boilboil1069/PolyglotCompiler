@@ -1,0 +1,17 @@
+IMPORT cpp::scalar;
+FUNC main() -> INT {
+  LET signed32: i32 = -2147483648;
+  LET unsigned32: u32 = 4294967295;
+  LET signed64: i64 = -9223372036854775807 - 1;
+  LET unsigned64: u64 = CONVERT(-1, u64);
+  print_f64(CALL(cpp, scalar::as_double, signed32));
+  print_f64(CALL(cpp, scalar::as_float, unsigned32));
+  print_f64(CALL(cpp, scalar::as_double, signed64));
+  print_f64(CALL(cpp, scalar::as_double, unsigned64));
+  print_f64(CALL(cpp, scalar::as_float, 16777217));
+  print_f64(CALL(cpp, scalar::as_double, 9007199254740993));
+  print_f64(CALL(cpp, scalar::as_float, -0.0));
+  print_i64(CALL(cpp, scalar::wide, 9007199254740993));
+  print_f64(CALL(cpp, scalar::as_double, CALL(cpp, scalar::unsigned_wide, unsigned64)));
+  RETURN 0;
+}

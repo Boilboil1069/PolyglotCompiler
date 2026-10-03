@@ -21,9 +21,9 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSplitter>
+#include <QTabWidget>
 #include <QTimer>
 #include <QToolBar>
-#include <QTabWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -34,6 +34,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "tools/ui/common/runtime/native_call_trace.h"
+
 namespace polyglot::tools::ui {
 
 // Forward declarations
@@ -42,6 +44,7 @@ class TopoEdgeItem;
 class TopologyPanel;
 class DrillDownWindow;
 class BreadcrumbBar;
+class NativeTracePanel;
 
 // ============================================================================
 // LayoutMode — algorithms available for arranging topology nodes
@@ -87,7 +90,9 @@ public:
   Direction PortDirection() const { return direction_; }
   TopoNodeItem *ParentNode() const { return parent_node_; }
   const QString &PortName() const { return name_; }
+  const QString &RuntimeValue() const { return runtime_value_; }
   const QString &TypeName() const { return type_name_; }
+  void SetRuntimeValue(const QString &value) { runtime_value_ = value; }
 
 protected:
   void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
@@ -101,6 +106,7 @@ private:
   Direction direction_;
   QString name_;
   QString type_name_;
+  QString runtime_value_;
   TopoNodeItem *parent_node_;
 };
 
@@ -150,6 +156,15 @@ public:
   void SetSourceLocation(const QString &file, int line);
   const QString &SourceFile() const { return source_file_; }
   int SourceLine() const { return source_line_; }
+  void SetCallLocation(const QString &file, int line, int column) {
+    call_file_ = file;
+    call_line_ = line;
+    call_column_ = column;
+  }
+  const QString &CallFile() const { return call_file_; }
+  int CallLine() const { return call_line_; }
+  int CallColumn() const { return call_column_; }
+  void SetRuntimeSample(const runtime::NativeTraceSample *sample);
   void SetDefinitionTarget(const QString &symbol, const QString &context) {
     definition_symbol_ = symbol; definition_context_ = context;
   }
@@ -209,6 +224,8 @@ private:
   int source_line_{0};
   QString definition_symbol_;
   QString definition_context_;
+  QString call_file_, runtime_caption_;
+  int call_line_{0}, call_column_{0};
 };
 
 // ============================================================================
@@ -442,6 +459,9 @@ class TopologyPanel : public QWidget {
   Q_OBJECT
 
 public:
+  bool BeginTraceSession(const QString &trace_file, bool follow = true);
+  void FinishTraceSession();
+  NativeTracePanel *TracePanel() const { return trace_panel_; }
   explicit TopologyPanel(QWidget *parent = nullptr);
   ~TopologyPanel() override;
 
@@ -495,6 +515,8 @@ signals:
   // Emitted when a node is double-clicked (navigate to source)
   void NodeDoubleClicked(const QString &filename, int line);
   void DefinitionRequested(const QString &qualified_symbol, const QString &context_file);
+  void RuntimeSampleSelected(const QString &file, int line, int column, const QString &summary);
+  void RuntimeOverlayCleared();
 
   // Emitted when validation completes
   void ValidationComplete(int errors, int warnings);
@@ -544,6 +566,7 @@ private:
   void LayoutNodes();
   void UpdateDetailsPanel(uint64_t node_id);
   void UpdateEdgeDetails(TopoEdgeItem *edge);
+  void UpdateRuntimeOverlay(bool navigate = true);
   // .poly file synchronization helpers
   void SyncEdgeToFile(TopoEdgeItem *edge);
   void RemoveEdgeFromFile(TopoEdgeItem *edge);
@@ -559,6 +582,7 @@ private:
   QSplitter *splitter_{nullptr};
   QTreeWidget *details_tree_{nullptr};
   QTabWidget *inspector_tabs_{nullptr};
+  NativeTracePanel *trace_panel_{nullptr};
   QPlainTextEdit *diagnostics_output_{nullptr};
   QComboBox *layout_combo_{nullptr};
   QLabel *status_label_{nullptr};

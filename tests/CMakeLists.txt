@@ -289,6 +289,7 @@ set(UNIT_TEST_POLYUI_PANELS
 )
 
 set(UNIT_TEST_TOPOLOGY_UI
+    unit/polyui/native_trace_panel_test.cpp
     unit/tools/topology_ui_main.cpp
     unit/tools/drilldown_window_test.cpp
     unit/tools/topology_ui_extended_test.cpp
@@ -443,6 +444,11 @@ target_link_libraries(test_completion_ranker PRIVATE ${CATCH2_LIBS})
 add_executable(test_cross_language_navigation
     unit/polyui/cross_language_navigator_test.cpp
     ${CMAKE_SOURCE_DIR}/tools/ui/common/cross_language/cross_language_navigator.cpp)
+add_executable(test_native_trace_model unit/polyui/native_call_trace_test.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/runtime/native_call_trace.cpp)
+target_link_libraries(test_native_trace_model PRIVATE Catch2::Catch2WithMain polyglot_common)
+target_include_directories(test_native_trace_model PRIVATE ${CMAKE_SOURCE_DIR})
+add_test(NAME test_native_trace_model COMMAND test_native_trace_model)
 target_include_directories(test_cross_language_navigation PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(test_cross_language_navigation PRIVATE ${CATCH2_LIBS})
 
@@ -455,6 +461,9 @@ endif()
 if(Qt6_FOUND OR Qt5_FOUND)
     set(CMAKE_AUTOMOC ON)
     add_executable(test_topology_ui ${UNIT_TEST_TOPOLOGY_UI}
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/native_trace_panel.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/native_trace_panel.h
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/runtime/native_call_trace.cpp
         ${CMAKE_SOURCE_DIR}/tools/ui/common/src/topology_panel.cpp
         ${CMAKE_SOURCE_DIR}/tools/ui/common/include/topology_panel.h
         ${CMAKE_SOURCE_DIR}/tools/ui/common/src/profiler_panel.cpp
@@ -777,9 +786,8 @@ set_tests_properties(samples_regression PROPERTIES LABELS "integration;samples")
 # Real four-language business fixture.  The script deliberately invokes only
 # the polyc built in this tree; polyc owns package discovery, per-language
 # frontend compilation, and the final polyld link.  Its native file runtime is
-# currently implemented for x86_64 POSIX hosts, so do not register a test that
-# would be guaranteed to reject an unsupported target.
-if(UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+# is implemented for x86_64 and AArch64 POSIX hosts.
+if(UNIX AND NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|arm64|aarch64|ARM64)$")
     add_test(NAME example_order_risk_analyzer
              COMMAND ${CMAKE_COMMAND} -E env
                      "POLYGLOT_BUILD_DIR=$<TARGET_FILE_DIR:polyc>"
@@ -800,8 +808,39 @@ set_tests_properties(benchmark_full  PROPERTIES LABELS "benchmark;full")
 # Execute the produced binaries, including nonzero checksum exit statuses.
 # This test covers the currently validated native AArch64 scalar pipeline.
 find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND AND TARGET polyui)
+    set(_QT_NATIVE_TRACE_ARGS)
+    if(UNIX AND NOT CMAKE_CROSSCOMPILING
+       AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64)$")
+        list(APPEND _QT_NATIVE_TRACE_ARGS --include-native-trace)
+    endif()
+    add_test(NAME qt_workspace_gate COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tests/native_programs/qt_smoke_gate.py"
+        --polyui $<TARGET_FILE:polyui> --output-root "${CMAKE_BINARY_DIR}/qt-workspace-gate"
+        ${_QT_NATIVE_TRACE_ARGS})
+    set_tests_properties(qt_workspace_gate PROPERTIES
+        LABELS "integration;ui" TIMEOUT 180 RUN_SERIAL TRUE)
+endif()
+if(Python3_Interpreter_FOUND AND UNIX AND NOT CMAKE_CROSSCOMPILING
+   AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|arm64|aarch64|ARM64)$")
+    add_test(NAME native_mixed_regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tests/native_programs/mixed_regression.py"
+        --polyc $<TARGET_FILE:polyc> --output-root "${CMAKE_BINARY_DIR}/native-mixed")
+    set_tests_properties(native_mixed_regression PROPERTIES
+        LABELS "integration;native;mixed" TIMEOUT 900 RUN_SERIAL TRUE)
+endif()
 if(Python3_Interpreter_FOUND AND UNIX AND NOT CMAKE_CROSSCOMPILING
    AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64)$")
+    add_test(NAME native_numeric_abi_regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tests/native_programs/numeric_abi_regression.py"
+        --compiler $<TARGET_FILE:polyc> --output "${CMAKE_BINARY_DIR}/numeric-abi-regression")
+    set_tests_properties(native_numeric_abi_regression PROPERTIES
+        LABELS "integration;native;abi" TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(NAME native_call_trace_regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tests/native_programs/trace_regression.py"
+        --polyc $<TARGET_FILE:polyc> --output-root "${CMAKE_BINARY_DIR}/native-trace")
+    set_tests_properties(native_call_trace_regression PROPERTIES
+        LABELS "integration;native;trace" TIMEOUT 180 RUN_SERIAL TRUE)
     add_test(NAME native_standalone_regression
         COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_SOURCE_DIR}/tests/native_programs/regression.py"
